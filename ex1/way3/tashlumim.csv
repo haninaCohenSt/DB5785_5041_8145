@@ -1,0 +1,37 @@
+paymentmethodid,methodname,methoddetails
+1,Credit Card,USD
+2,Credit Card,EUR
+3,Credit Card,CNY
+4,Credit Card,GBP
+5,Credit Card,INR
+6,Credit Card,RUB
+7,Bank Transfer,USD
+8,Bank Transfer,EUR
+9,Bank Transfer,CNY
+10,Bank Transfer,GBP
+11,Bank Transfer,INR
+12,Bank Transfer,RUB
+13,Cash,USD
+14,Cash,EUR
+15,Cash,CNY
+16,Cash,GBP
+17,Cash,INR
+18,Cash,RUB
+19,PayPal,USD
+20,PayPal,EUR
+21,PayPal,CNY
+22,PayPal,GBP
+23,PayPal,INR
+24,PayPal,RUB
+25,Digital Wallets,USD
+26,Digital Wallets,EUR
+27,Digital Wallets,CNY
+28,Digital Wallets,GBP
+29,Digital Wallets,INR
+30,Digital Wallets,RUB
+31,Debit Cards,USD
+32,Debit Cards,EUR
+33,Debit Cards,CNY
+34,Debit Cards,GBP
+35,Debit Cards,INR
+36,Debit Cards,RUB
