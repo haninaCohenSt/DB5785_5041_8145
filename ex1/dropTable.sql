@@ -1,0 +1,7 @@
+-- Drop tables in reverse order to avoid dependency issues
+DROP TABLE IF EXISTS Tax CASCADE;
+DROP TABLE IF EXISTS Invoice CASCADE;
+DROP TABLE IF EXISTS Transaction CASCADE;
+DROP TABLE IF EXISTS Expense CASCADE;
+DROP TABLE IF EXISTS PaymentMethod CASCADE;
+DROP TABLE IF EXISTS Supplier CASCADE;
