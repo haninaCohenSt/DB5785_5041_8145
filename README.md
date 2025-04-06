@@ -14,11 +14,11 @@ Designed an ERD to model relationships and entities for the financial part of a 
 Focused on normalizing the database and ensuring scalability for tracking expenses, transactions, invoices, taxes, and payment methods.
 ERD Snapshot:
 
-![ERD Diagram](image/erdERD.png)
+![ERD Diagram](images/erd/ERD.png)
 
 Data Structure Diagram (DSD) Snapshot:
 
-![DSD Diagram](image/erd/DSD.png)
+![DSD Diagram](images/erd/DSD.png)
 
 ERD Explanation (Data Dictionary):
 
@@ -155,7 +155,7 @@ CREATE TABLE Tax (
 );
 SQL Table Creation Snapshot:
 
-![SQL Table Creation](image/erd/sql.png)
+![SQL Table Creation](images/erd/sql.png)
 
 Generating Sample Data:
 
@@ -163,11 +163,11 @@ Generated sample data to simulate real-world financial scenarios for a hotel usi
 Inserted data for suppliers, expenses, transactions, invoices, payment methods, and taxes.
 Excel Snapshot of Sample Data:
 
-![Excel Sample Data](image/erd/exel.png)
+![Excel Sample Data](images/erd/exel.png)
 
 CSV Snapshot of Sample Data:
 
-![CSV Sample Data](image/erd/csv.png)
+![CSV Sample Data](images/erd/csv.png)
 
 Writing SQL Queries:
 
