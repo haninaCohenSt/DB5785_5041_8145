@@ -265,20 +265,3 @@ JOIN Tax t ON tr.TransactionID = t.TransactionID;
 -- Query the view
 SELECT * FROM ExpenseSummary;
 ```
-
----
-
-## 📦 PostgreSQL with Docker
-
-Set up PostgreSQL with Docker and pgAdmin.
-
-```bash
-# Create a Docker volume for persistence
-docker volume create hotel_db_data
-
-# Run PostgreSQL container
-docker run --name hotel_postgres -e POSTGRES_PASSWORD=securepassword -d -p 5432:5432 -v hotel_db_data:/var/lib/postgresql/data postgres:latest
-
-# Run pgAdmin container
-docker run --name hotel_pgadmin -d -p 5050:80 -e PGADMIN_DEFAULT_EMAIL=admin@hotel.com -e PGADMIN_DEFAULT_PASSWORD=adminpass dpage/pgadmin4:latest
-```
