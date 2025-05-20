@@ -190,63 +190,6 @@ CREATE TABLE Has (
     FOREIGN KEY (TransactionID) REFERENCES Transaction(TransactionID)
 );
 ```
-or 
-```sql
--- Supplier Table
-CREATE TABLE Supplier (
-    SupplierID SERIAL PRIMARY KEY,
-    SupplierName TEXT NOT NULL,
-    ContactDetails TEXT,
-    Address TEXT
-);
-
--- Expense Table
-CREATE TABLE Expense (
-    ExpenseID SERIAL PRIMARY KEY,
-    Description TEXT,
-    Category TEXT,
-    TransactionID INTEGER NOT NULL,
-    SupplierID INTEGER,
-    FOREIGN KEY (TransactionID) REFERENCES Transaction(TransactionID),
-    FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
-);
-
--- Transaction Table
-CREATE TABLE Transaction (
-    TransactionID SERIAL PRIMARY KEY,
-    Date DATE NOT NULL,
-    Amount DECIMAL NOT NULL,
-    Status TEXT,
-    PaymentMethodID INTEGER NOT NULL,
-    InvoiceID INTEGER,
-    FOREIGN KEY (PaymentMethodID) REFERENCES PaymentMethod(PaymentMethodID),
-    FOREIGN KEY (InvoiceID) REFERENCES Invoice(InvoiceID)
-);
-
--- Invoice Table
-CREATE TABLE Invoice (
-    InvoiceID SERIAL PRIMARY KEY,
-    Discount DECIMAL,
-    TypeAD TEXT
-);
-
--- PaymentMethod Table
-CREATE TABLE PaymentMethod (
-    PaymentMethodID SERIAL PRIMARY KEY,
-    MethodName TEXT NOT NULL,
-    MethodDetails TEXT
-);
-
--- Tax Table
-CREATE TABLE Tax (
-    TaxID SERIAL PRIMARY KEY,
-    TransactionID INTEGER NOT NULL,
-    Percentage DECIMAL,
-    TaxAmount DECIMAL,
-    DoToDate DATE,
-    FOREIGN KEY (TransactionID) REFERENCES Transaction(TransactionID)
-);
-```
 
 **Table Creation Snapshot:**
 ![SQL Table Creation](images/erd/sql.png)
