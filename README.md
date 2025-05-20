@@ -1,104 +1,129 @@
-<a name="workshop-id"></a>
+# 📝 Workshop Files & Scripts (Hanina Cohen & Oded Ofek) 🧓‍🎓
 
-📝 Workshop Files & Scripts (Hanina Cohen & Oded Ofek) 🧑‍🎓
 This workshop introduces key database concepts and provides hands-on practice in a controlled, containerized environment using PostgreSQL within Docker. Our project focuses on the financial part of a hotel management system, where we designed and implemented a database to track expenses, transactions, invoices, taxes, and payment methods. Below are the details of our implementation.
 
-Team Members:
+---
 
-Hanina Cohen (ID: 337615041)
-Oded Ofek (ID: 215348145)
-Key Concepts Covered:
-Entity-Relationship Diagram (ERD):
+## 🎓 Team Members
 
-Designed an ERD to model relationships and entities for the financial part of a hotel management system.
-Focused on normalizing the database and ensuring scalability for tracking expenses, transactions, invoices, taxes, and payment methods.
-ERD Snapshot:
+* **Hanina Cohen** (ID: 337615041)
+* **Oded Ofek** (ID: 215348145)
 
+---
+
+## 🔎 Key Concepts Covered
+
+### Entity-Relationship Diagram (ERD)
+
+* Designed an ERD to model relationships and entities for the financial part of a hotel management system.
+* Focused on normalizing the database and ensuring scalability for tracking expenses, transactions, invoices, taxes, and payment methods.
+
+**ERD Snapshot:**
 ![ERD Diagram](images/erd/ERD.png)
 
-Data Structure Diagram (DSD) Snapshot:
+### Data Structure Diagram (DSD) Snapshot
 
 ![DSD Diagram](images/erd/DSD.png)
 
-ERD Explanation (Data Dictionary):
+---
 
-Expense Tracking Database: Data Dictionary
-Entities and Attributes
-Supplier
+## 📊 ERD Explanation (Data Dictionary)
 
-A vendor or service provider from whom goods or services are purchased.
+### Supplier
 
-Attribute	Description	Data Type	Constraints
-SupplierID	Unique identifier for each supplier	Integer	Primary Key
-SupplierName	Legal name of the supplier	Text	Not Null
-ContactDetails	Phone number, email, or other contact info	Text	
-Address	Physical or mailing address of the supplier	Text	
-Expense
+Represents a vendor or service provider from whom goods or services are purchased.
 
-A record of money spent related to business operations.
+| Attribute      | Description                         | Data Type | Constraints |
+| -------------- | ----------------------------------- | --------- | ----------- |
+| SupplierID     | Unique identifier for each supplier | Integer   | Primary Key |
+| SupplierName   | Legal name of the supplier          | Text      | Not Null    |
+| ContactDetails | Phone, email, or other contact      | Text      |             |
+| Address        | Physical or mailing address         | Text      |             |
 
-Attribute	Description	Data Type	Constraints
-ExpenseID	Unique identifier for each expense	Integer	Primary Key
-Description	Details about what the expense was for	Text	
-Category	Classification of expense (e.g., Utilities)	Text	
-TransactionID	Reference to the associated transaction	Integer	Foreign Key
-SupplierID	Reference to the supplier for this expense	Integer	Foreign Key (Optional)
-Transaction
+### Expense
 
-A financial event representing the transfer of money.
+Represents a record of money spent related to business operations.
 
-Attribute	Description	Data Type	Constraints
-TransactionID	Unique identifier for each transaction	Integer	Primary Key
-Date	When the transaction occurred	Date	Not Null
-Amount	Monetary value of the transaction	Decimal	Not Null
-Status	Current state (e.g., Pending, Completed)	Text	
-PaymentMethodID	Reference to how payment was made	Integer	Foreign Key
-InvoiceID	Reference to associated invoice	Integer	Foreign Key (Optional)
-Invoice
+| Attribute     | Description                         | Data Type | Constraints            |
+| ------------- | ----------------------------------- | --------- | ---------------------- |
+| ExpenseID     | Unique identifier for each expense  | Integer   | Primary Key            |
+| Description   | Details about the expense           | Text      |                        |
+| Category      | Classification of expense           | Text      |                        |
+| TransactionID | Reference to associated transaction | Integer   | Foreign Key (Not Null) |
+| SupplierID    | Reference to the supplier           | Integer   | Foreign Key (Optional) |
 
-A formal document issued by a supplier requesting payment.
+### Transaction
 
-Attribute	Description	Data Type	Constraints
-InvoiceID	Unique identifier for each invoice	Integer	Primary Key
-Discount	Reduction in price offered by supplier	Decimal	Optional
-TypeA/D	Classification of invoice type	Text	
-PaymentMethod
+Represents a financial event involving transfer of money.
 
-The means by which a transaction is settled.
+| Attribute       | Description                       | Data Type | Constraints            |
+| --------------- | --------------------------------- | --------- | ---------------------- |
+| TransactionID   | Unique identifier for transaction | Integer   | Primary Key            |
+| Date            | When the transaction occurred     | Date      | Not Null               |
+| Amount          | Monetary value of transaction     | Decimal   | Not Null               |
+| Status          | Current state of transaction      | Text      |                        |
+| PaymentMethodID | Payment method used               | Integer   | Foreign Key (Not Null) |
+| InvoiceID       | Reference to associated invoice   | Integer   | Foreign Key (Optional) |
 
-Attribute	Description	Data Type	Constraints
-PaymentMethodID	Unique identifier for payment method	Integer	Primary Key
-MethodName	Name of payment method (e.g., Credit Card)	Text	Not Null
-MethodDetails	Detail of method if needed	Text	
-Tax
+### Invoice
+
+Represents a formal document requesting payment.
+
+| Attribute | Description                    | Data Type | Constraints |
+| --------- | ------------------------------ | --------- | ----------- |
+| InvoiceID | Unique identifier for invoice  | Integer   | Primary Key |
+| Discount  | Discount offered by supplier   | Decimal   | Optional    |
+| TypeAD    | Classification of invoice type | Text      |             |
+
+### PaymentMethod
+
+Represents the method by which a transaction was settled.
+
+| Attribute       | Description                          | Data Type | Constraints |
+| --------------- | ------------------------------------ | --------- | ----------- |
+| PaymentMethodID | Unique identifier for payment method | Integer   | Primary Key |
+| MethodName      | Name (e.g., Credit Card)             | Text      | Not Null    |
+| MethodDetails   | Additional info if needed            | Text      |             |
+
+### Tax
 
 Information about taxation applied to a transaction.
 
-Attribute	Description	Data Type	Constraints
-TaxID	Unique identifier for tax record	Integer	Primary Key
-TransactionID	Reference to associated transaction	Integer	Foreign Key, Composite Key
-Percentage	Tax rate applied (e.g., 7%, 10%)	Decimal	
-TaxAmount	Calculated tax value	Decimal	
-DoToDate	Due date for tax payment or filing	Date	
-Relationships
-GetPaidBy: Connects Supplier and Expense (One-to-Many). One supplier can be associated with many expenses. Both sides are optional since some suppliers may not have business with the hotel, and some expenses aren’t for suppliers.
-Involves: Connects Expense and Transaction (One-to-Many). Each expense is associated with one or more transactions. Not every transaction has an expense (e.g., it could be income), but every expense must have a transaction.
-Used: Connects PaymentMethod and Transaction (Many-to-Many). Many payment methods can be used for many transactions. Not every method has a transaction, but every transaction uses one or more payment methods.
-GeneratedBy: Connects Transaction and Invoice (One-to-One). Each transaction is associated with one invoice. Every invoice has a transaction, but not every transaction has an invoice (e.g., some are expenses).
-Has: Connects Transaction and Tax (One-to-Many). Each transaction can have one or multiple taxes. Not every tax has a transaction.
-Creating Tables:
+| Attribute     | Description                      | Data Type | Constraints            |
+| ------------- | -------------------------------- | --------- | ---------------------- |
+| TaxID         | Unique identifier for tax record | Integer   | Primary Key            |
+| TransactionID | Related transaction              | Integer   | Foreign Key (Not Null) |
+| Percentage    | Tax rate applied                 | Decimal   |                        |
+| TaxAmount     | Calculated tax amount            | Decimal   |                        |
+| DoToDate      | Due date for payment/filing      | Date      |                        |
 
-Translated the ERD into actual tables, defining columns, data types, primary keys, and foreign keys for the financial part of the hotel management system.
-Utilized SQL commands to create the tables.
-Table Creation Code:
+---
 
-sql
+## 🛠️ Table Relationships with Notation
 
-Collapse
+| Relationship Name | From (Entity) | To (Entity)     | Cardinality     | Description                                                                               |
+| ----------------- | ------------- | --------------- | --------------- | ----------------------------------------------------------------------------------------- |
+| `GetPaidBy`       | `Expense`     | `Supplier`      | `0..N` → `0..1` | A supplier may be linked to many expenses, and an expense may optionally have a supplier. |
+| `Involves`        | `Expense`     | `Transaction`   | `1` → `1`       | Every expense must be linked to exactly one transaction.                                  |
+| `GeneratedBy`     | `Transaction` | `Invoice`       | `0..1` ↔ `0..1` | A transaction may optionally generate one invoice and vice versa.                         |
+| `Used`            | `Transaction` | `PaymentMethod` | `0..N` → `1`    | Each transaction uses exactly one payment method, which may be used by many transactions. |
+| `Has`             | `Transaction` | `Tax`           | `0..1` ← `0..N` | A transaction can have many taxes; each tax belongs to exactly one transaction.           |
 
-Wrap
+**Legend:**
 
-Copy
+* `1`: Exactly one (mandatory)
+* `0..1`: Zero or one (optional)
+* `0..N`: Zero or many (optional)
+* `1..N`: One or many (at least one, mandatory)
+* `↔`: Bidirectional
+
+---
+
+## 📁 Creating Tables
+
+Translated the ERD into actual tables, defining columns, data types, primary keys, and foreign keys.
+
+```sql
 -- Supplier Table
 CREATE TABLE Supplier (
     SupplierID SERIAL PRIMARY KEY,
@@ -153,37 +178,32 @@ CREATE TABLE Tax (
     DoToDate DATE,
     FOREIGN KEY (TransactionID) REFERENCES Transaction(TransactionID)
 );
-SQL Table Creation Snapshot:
+```
 
+**Table Creation Snapshot:**
 ![SQL Table Creation](images/erd/sql.png)
 
-Generating Sample Data:
+---
 
-Generated sample data to simulate real-world financial scenarios for a hotel using SQL Insert Statements.
-Inserted data for suppliers, expenses, transactions, invoices, payment methods, and taxes.
-Excel Snapshot of Sample Data:
+## 📝 Sample Data
 
+Generated realistic sample data using SQL `INSERT` statements.
+
+**Excel Snapshot:**
 ![Excel Sample Data](images/erd/exel.png)
 
-CSV Snapshot of Sample Data:
-
+**CSV Snapshot:**
 ![CSV Sample Data](images/erd/csv.png)
 
-Writing SQL Queries:
+---
 
-Practiced writing SELECT, JOIN, GROUP BY, and ORDER BY queries to analyze financial data.
-Focused on efficient querying for expense tracking and tax calculations.
-Example SQL Query:
+## 🔢 SQL Queries
 
-sql
+Practiced writing queries to analyze financial data.
 
-Collapse
-
-Wrap
-
-Copy
+```sql
 -- Query to get total expenses per supplier with tax details
-SELECT 
+SELECT
     s.SupplierName,
     SUM(e.Amount) AS TotalExpense,
     SUM(t.TaxAmount) AS TotalTax,
@@ -194,18 +214,15 @@ JOIN Transaction tr ON e.TransactionID = tr.TransactionID
 JOIN Tax t ON tr.TransactionID = t.TransactionID
 GROUP BY s.SupplierName, t.Percentage
 ORDER BY TotalExpense DESC;
-Stored Procedures and Functions:
+```
 
-Created a stored procedure to calculate the total tax amount for a given transaction.
-Stored Procedure Code:
+---
 
-sql
+## 📊 Stored Procedures and Functions
 
-Collapse
+Created a stored procedure to calculate total tax for a given transaction.
 
-Wrap
-
-Copy
+```sql
 CREATE OR REPLACE PROCEDURE CalculateTotalTaxForTransaction(p_TransactionID INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -220,22 +237,19 @@ BEGIN
 END;
 $$;
 
--- Call the stored procedure
+-- Call it:
 CALL CalculateTotalTaxForTransaction(1);
-Views:
+```
 
-Created a view to simplify querying expenses with supplier and tax details.
-View Code:
+---
 
-sql
+## 🔍 Views
 
-Collapse
+Created a view to simplify querying expense, supplier, and tax details.
 
-Wrap
-
-Copy
+```sql
 CREATE VIEW ExpenseSummary AS
-SELECT 
+SELECT
     e.ExpenseID,
     e.Description,
     e.Category,
@@ -250,19 +264,15 @@ JOIN Tax t ON tr.TransactionID = t.TransactionID;
 
 -- Query the view
 SELECT * FROM ExpenseSummary;
-PostgreSQL with Docker:
+```
 
-Set up a Docker container to run PostgreSQL for the hotel management system.
-Configured database connections and ensured data persistence.
-Docker Configuration Code:
+---
 
-bash
+## 📦 PostgreSQL with Docker
 
-Collapse
+Set up PostgreSQL with Docker and pgAdmin.
 
-Wrap
-
-Copy
+```bash
 # Create a Docker volume for persistence
 docker volume create hotel_db_data
 
@@ -271,3 +281,4 @@ docker run --name hotel_postgres -e POSTGRES_PASSWORD=securepassword -d -p 5432:
 
 # Run pgAdmin container
 docker run --name hotel_pgadmin -d -p 5050:80 -e PGADMIN_DEFAULT_EMAIL=admin@hotel.com -e PGADMIN_DEFAULT_PASSWORD=adminpass dpage/pgadmin4:latest
+```
