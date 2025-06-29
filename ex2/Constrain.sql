@@ -1,8 +1,8 @@
 ALTER TABLE transaction
 ALTER COLUMN amount SET NOT NULL;
 
-ALTER TABLE tax
-ADD CONSTRAINT chk_percentage CHECK (percentage >= 0 AND percentage <= 100);
+ALTER TABLE paymentmethod
+ALTER COLUMN methoddetails SET DEFAULT 'USD';
 
 ALTER TABLE transaction
 ALTER COLUMN status SET DEFAULT 'Approved';
