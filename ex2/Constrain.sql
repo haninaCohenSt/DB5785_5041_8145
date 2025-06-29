@@ -1,4 +1,4 @@
-ALTER TABLE payment
+ALTER TABLE transaction
 ALTER COLUMN amount SET NOT NULL;
 
 ALTER TABLE tax
