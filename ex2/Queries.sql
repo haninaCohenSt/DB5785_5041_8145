@@ -28,23 +28,13 @@ JOIN Expense E ON S.SupplierID = E.SupplierID
 JOIN Transaction T ON E.ExpenseID = T.ExpenseID
 GROUP BY S.SupplierName;
 
---Delete all invoices that are linked to transactions marked as "Rejected"
-DELETE FROM invoice
-WHERE transactionid IN (
-    SELECT transactionid
-    FROM transaction
-    WHERE status = 'Rejected'
-);
+
 
 --Delete all transactions before a certain date
 SELECT *
 FROM transaction
 WHERE date < '2025-06-20';
 
---Update supplier contact details
-UPDATE invoice
-SET discount = 0.10
-WHERE type = 'D';
 
 --Find all suppliers and how many expenses are linked to each
 SELECT 
@@ -102,27 +92,6 @@ SELECT
 FROM Invoice
 JOIN Transaction ON Invoice.TransactionID = Transaction.TransactionID;
 
---COMMIT example
-BEGIN;
-UPDATE transaction
-SET status = 'Completed'
-WHERE status = 'Pending';
-COMMIT;
-
---ROLLBACK example
-BEGIN;
-UPDATE supplier 
-SET contactdetails = 'updated@example.com, 050-1234501' 
-WHERE contactdetails IS NULL OR contactdetails = 'supplier1@domain.com, 050-1234501';
-
-SELECT COUNT(*) FROM supplier WHERE contactdetails = 'updated@example.com, 050-1234501';
-SELECT * FROM supplier WHERE contactdetails = 'updated@example.com, 050-1234501';
-
-SELECT * FROM public.supplier
-ORDER BY supplierid ASC 
-
-ROLLBACK;
-
 --Show all transactions above a certain threshold
 SELECT * 
 FROM Transaction
@@ -152,3 +121,71 @@ JOIN Transaction T ON E.ExpenseID = T.ExpenseID
 GROUP BY S.SupplierName
 ORDER BY TransactionCount DESC
 LIMIT 5;
+
+
+--COMMIT example
+BEGIN;
+UPDATE transaction
+SET status = 'Completed'
+WHERE status = 'Pending';
+COMMIT;
+
+--ROLLBACK example
+BEGIN;
+UPDATE supplier 
+SET contactdetails = 'updated@example.com, 050-1234501' 
+WHERE contactdetails IS NULL OR contactdetails = 'supplier1@domain.com, 050-1234501';
+
+SELECT COUNT(*) FROM supplier WHERE contactdetails = 'updated@example.com, 050-1234501';
+SELECT * FROM supplier WHERE contactdetails = 'updated@example.com, 050-1234501';
+
+SELECT * FROM public.supplier
+ORDER BY supplierid ASC 
+
+ROLLBACK;
+
+
+--Update supplier contact details
+UPDATE invoice
+SET discount = 0.10
+WHERE type = 'D';
+
+--Update default email format for suppliers missing contact details
+UPDATE supplier
+SET contactdetails = CONCAT(suppliername, '@business.com')
+WHERE contactdetails IS NULL 
+OR contactdetails = '' 
+OR contactdetails NOT LIKE '%@%'
+OR contactdetails = 'supplier1@domain.com, 050-1234501';
+
+--Update late fee
+-- Apply late fee to old pending transactions
+UPDATE transaction
+SET amount = amount * 1.05  -- Add 5% late fee
+WHERE date < CURRENT_DATE - INTERVAL '30 days'
+AND status = 'Pending';
+
+
+--Delete all invoices that are linked to transactions marked as "Rejected"
+DELETE FROM invoice
+WHERE transactionid IN (
+    SELECT transactionid
+    FROM transaction
+    WHERE status = 'Rejected'
+);
+
+--Delete old tax relationships for completed transactions
+DELETE FROM "transactionHasTax"
+WHERE transactionid IN (
+    SELECT transactionid 
+    FROM transaction 
+    WHERE status = 'Completed' AND date < '2025-05-06'
+);
+
+--Delete payment method links from old completed transactions
+DELETE FROM "paymentMethodUsedInTransaction"
+WHERE transactionid IN (
+    SELECT transactionid 
+    FROM transaction 
+    WHERE status = 'Completed' AND date < '2025-05-06'
+);
