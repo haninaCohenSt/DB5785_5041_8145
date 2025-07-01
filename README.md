@@ -669,18 +669,17 @@ Git for version control (stage-c tag)
 
 🧾 DSDs
 
-![reception_dsd](ex3/ERD.png)
+![reception_dsd](ex3/DSD.png)
 
 
 integrated_dsd.png: /images/integration/integrated_dsd.png
 
 🧮 ERDs
 
-financial_erd.png: /images/integration/financial_erd.png
 
-reception_erd.png: /images/integration/reception_erd.png
+![reception_ERD](ex3/ERD.png)
 
-combined_erd.png: /images/integration/combined_erd.png
+![integrated_ERD](ex3/פרסום1.jpeg)
 
 🗱 Step-by-Step Integration Workflow
 
