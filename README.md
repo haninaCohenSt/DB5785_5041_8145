@@ -597,6 +597,7 @@ COMMIT;
 ```
 
 📸 Screenshot S – Final committed state
+
 ![COMMIT](images/erd/commit.png)
 
 #### ROLLBACK Example (Query 22)
