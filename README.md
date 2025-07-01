@@ -679,7 +679,7 @@ integrated_dsd.png: /images/integration/integrated_dsd.png
 
 ![reception_ERD](ex3/ERD.png)
 
-![integrated_ERD](ex3/פרסום1.jpeg)
+![integrated_ERD](ex3/פרסום1.jpg)
 
 🗱 Step-by-Step Integration Workflow
 
