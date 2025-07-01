@@ -641,3 +641,397 @@ ALTER TABLE transaction
 ALTER COLUMN status SET DEFAULT 'Approved';
 ```
 ![](images/erd/A2.png)
+
+
+# 📘 Stage C – Integration and Views
+
+This stage focuses on integrating our financial management system with another hotel department's database system. We received a backup of the Reception department's database and performed a complete integration process, creating views and complex queries that span both systems.
+
+---
+
+## 🔄 Integration Process Overview
+
+### Step 1: Creating a database to perform integration
+
+We created another database to integrate with it.
+
+**Reception Department DSD:**
+![Reception DSD](ex3/DSD.png)
+
+### Step 2: Creating ERD from Reception DSD
+
+From the DSD analysis, we created the ERD for the Reception department to understand the relationships and entities.
+
+**Reception Department ERD:**
+![Reception ERD](ex3/ERD.png)
+
+### Step 3: Integrated ERD Design
+
+We designed a combined ERD that integrates both the Financial and Reception departments, making key design decisions about relationships and data flow.
+
+**Integrated ERD:**
+![Integrated ERD](ex3/פרסום1.jpg)
+
+### Step 4: Final Integrated DSD
+
+The final database structure after integration, showing all tables and relationships.
+
+**Final Integrated DSD:**
+![Final DSD](ex3/BIGDSD.png)
+
+---
+
+## 🛠️ Integration Implementation
+
+### Integration SQL Commands
+
+```sql
+-- Enable Foreign Data Wrapper
+CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+
+-- Create Foreign Server Connection
+CREATE SERVER reception_server
+FOREIGN DATA WRAPPER postgres_fdw
+OPTIONS (host 'localhost', port '5432', dbname 'DB25785_4051_8145');
+
+-- Create User Mapping for Authentication
+CREATE USER MAPPING FOR CURRENT_USER
+SERVER reception_server
+OPTIONS (user 'postgres', password '123');
+
+-- Import Foreign Schema
+IMPORT FOREIGN SCHEMA public
+LIMIT TO (guests, rooms, reservations, checkinout)
+FROM SERVER reception_server
+INTO public;
+
+-- Rename Foreign Tables
+ALTER FOREIGN TABLE guests RENAME TO foreign_guests;
+ALTER FOREIGN TABLE rooms RENAME TO foreign_rooms;
+ALTER FOREIGN TABLE reservations RENAME TO foreign_reservations;
+ALTER FOREIGN TABLE checkinout RENAME TO foreign_checkinout;
+
+-- Create Integration Tables
+CREATE TABLE reservationfinancelink (
+    link_id integer PRIMARY KEY,
+    reservation_id numeric NOT NULL,
+    transaction_id numeric NOT NULL,
+    created_date timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_transaction FOREIGN KEY (transaction_id) REFERENCES Transaction(TransactionID)
+);
+
+CREATE TABLE reservationsync (
+    reservation_id numeric NOT NULL,
+    guest_name character varying,
+    room_number numeric,
+    check_in_date date,
+    check_out_date date,
+    total_amount numeric,
+    sync_date timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 👁️ Views Implementation
+
+### View 1: Financial Department Perspective
+**View Name:** `financial_reservation_view`
+
+This view provides the financial department with a comprehensive overview of all reservations and their associated financial transactions, including payment status and expected vs. actual amounts.
+
+```sql
+CREATE OR REPLACE VIEW financial_reservation_view AS
+SELECT 
+    r.reservation_id,
+    (g.first_name || ' ' || g.last_name) AS guest_name,
+    r.room_number,
+    ro.room_type,
+    r.check_in_date,
+    r.check_out_date,
+    r.reservation_status,
+    (ro.price_per_night * ((r.check_out_date - r.check_in_date)::numeric)) AS expected_amount,
+    t.transactionid,
+    t.amount AS paid_amount,
+    t.status AS payment_status,
+    t.date AS payment_date,
+    i.invoiceid,
+    i.discount,
+    CASE
+        WHEN t.transactionid IS NULL THEN 'Not Paid'
+        WHEN t.status = 'Completed' THEN 'Paid'
+        WHEN t.status = 'Pending' THEN 'Pending Payment'
+        WHEN t.status = 'Approved' THEN 'Approved'
+        WHEN t.status = 'Rejected' THEN 'Rejected'
+        ELSE t.status
+    END AS payment_summary
+FROM foreign_reservations r
+JOIN foreign_guests g ON r.guest_id = g.guest_id
+JOIN foreign_rooms ro ON r.room_number = ro.room_number
+LEFT JOIN reservationfinancelink rfl ON r.reservation_id = rfl.reservation_id
+LEFT JOIN transaction t ON rfl.transaction_id = t.transactionid
+LEFT JOIN invoice i ON t.transactionid = i.transactionid;
+```
+
+**View Description:** This view combines reservation data with financial transaction details, allowing the finance department to track expected vs. actual payments, identify outstanding balances, and monitor payment statuses across all guest reservations. The view includes calculated fields for payment summaries and expected amounts based on room rates and stay duration.
+
+**Sample Data from View:**
+```sql
+SELECT * FROM financial_reservation_view LIMIT 10;
+```
+![Financial View Sample](ex3/צילום מסך 2025-07-01 191123.png)
+![](ex3/צילום מסך 2025-07-01 191150.png)
+
+
+### View 2: Reception Department Perspective
+**View Name:** `reception_occupancy_financial_view`
+
+This view provides the reception department with room occupancy information combined with financial performance data, helping them understand revenue generation and payment status by room.
+
+```sql
+CREATE OR REPLACE VIEW reception_occupancy_financial_view AS
+SELECT 
+    ro.room_number,
+    ro.room_type,
+    ro.floor,
+    ro.status as room_status,
+    ro.price_per_night,
+    COUNT(DISTINCT r.reservation_id) as total_reservations,
+    COUNT(DISTINCT CASE 
+        WHEN r.check_in_date <= CURRENT_DATE AND r.check_out_date >= CURRENT_DATE 
+        THEN r.reservation_id 
+    END) as current_occupation,
+    COALESCE(SUM(t.amount), 0) as total_revenue,
+    AVG(i.discount) as avg_discount,
+    COUNT(DISTINCT CASE 
+        WHEN t.status = 'Completed' THEN rfl.reservation_id 
+    END) as paid_reservations,
+    COUNT(DISTINCT CASE 
+        WHEN t.status = 'Pending' THEN rfl.reservation_id 
+    END) as pending_payments
+FROM foreign_rooms ro
+LEFT JOIN foreign_reservations r ON ro.room_number = r.room_number
+LEFT JOIN reservationfinancelink rfl ON r.reservation_id = rfl.reservation_id
+LEFT JOIN transaction t ON rfl.transaction_id = t.transactionid
+LEFT JOIN invoice i ON t.transactionid = i.transactionid
+GROUP BY ro.room_number, ro.room_type, ro.floor, ro.status, ro.price_per_night;
+```
+
+**View Description:** This view aggregates room occupancy data with financial metrics, providing reception staff with insights into room performance, current occupancy status, revenue generation, and payment statuses. It helps identify rooms that require payment follow-up and provides occupancy analytics for better room management.
+
+**Sample Data from View:**
+```sql
+SELECT * FROM reception_occupancy_financial_view LIMIT 10;
+```
+![Reception View Sample](images/integration/reception_view_sample.png)
+*Place screenshot showing first 10 records from reception_occupancy_financial_view*
+
+---
+
+## 🔍 Queries on Views
+
+### Queries on Financial View
+
+#### Query 1.1: Outstanding Payments Report
+```sql
+SELECT 
+    guest_name,
+    room_number,
+    room_type,
+    check_in_date,
+    check_out_date,
+    expected_amount,
+    COALESCE(paid_amount, 0) as paid_amount,
+    expected_amount - COALESCE(paid_amount, 0) as balance_due,
+    payment_summary
+FROM financial_reservation_view
+WHERE payment_status IS NULL OR payment_status != 'Completed'
+ORDER BY balance_due DESC
+LIMIT 10;
+```
+
+**Purpose:** Identify reservations with unpaid or pending payments to prioritize collection efforts and follow up with guests who have outstanding balances.
+
+**Results:**
+![Financial Query 1](images/integration/financial_query1.png)
+*Place screenshot of outstanding payments report*
+
+#### Query 1.2: Revenue Analysis by Room Type
+```sql
+SELECT 
+    room_type,
+    COUNT(*) as total_reservations,
+    COUNT(transactionid) as paid_reservations,
+    SUM(expected_amount) as expected_revenue,
+    SUM(paid_amount) as actual_revenue,
+    AVG(discount) as average_discount,
+    SUM(expected_amount) - SUM(paid_amount) as revenue_gap
+FROM financial_reservation_view
+GROUP BY room_type
+ORDER BY actual_revenue DESC;
+```
+
+**Purpose:** Analyze revenue performance by room type, including the impact of discounts and identify revenue gaps that need attention.
+
+**Results:**
+![Financial Query 2](images/integration/financial_query2.png)
+*Place screenshot of revenue analysis by room type*
+
+### Queries on Reception View
+
+#### Query 2.1: Room Performance Summary
+```sql
+SELECT 
+    room_type,
+    COUNT(*) as total_rooms,
+    SUM(total_reservations) as total_bookings,
+    SUM(current_occupation) as currently_occupied,
+    SUM(total_revenue) as total_revenue_generated,
+    AVG(price_per_night) as avg_room_price,
+    ROUND(AVG(avg_discount), 2) as avg_discount_given
+FROM reception_occupancy_financial_view
+GROUP BY room_type
+ORDER BY total_revenue_generated DESC;
+```
+
+**Purpose:** Evaluate room utilization and revenue generation by room type to inform pricing strategies and identify high-performing room categories.
+
+**Results:**
+![Reception Query 1](images/integration/reception_query1.png)
+*Place screenshot of room performance summary*
+
+#### Query 2.2: Payment Status Alert by Room
+```sql
+SELECT 
+    room_number,
+    room_type,
+    floor,
+    price_per_night,
+    total_reservations,
+    paid_reservations,
+    pending_payments,
+    total_revenue,
+    CASE 
+        WHEN pending_payments > 0 THEN 'Action Required'
+        WHEN total_reservations > paid_reservations THEN 'Check Required'
+        ELSE 'OK'
+    END as payment_status_alert
+FROM reception_occupancy_financial_view
+WHERE pending_payments > 0 OR (total_reservations > paid_reservations)
+ORDER BY pending_payments DESC, room_number
+LIMIT 15;
+```
+
+**Purpose:** Identify rooms with pending payments for follow-up and alert reception staff to potential payment issues that require immediate attention.
+
+**Results:**
+![Reception Query 2](images/integration/reception_query2.png)
+*Place screenshot of payment status alerts*
+
+---
+
+## 📊 Integration Verification
+
+### Data Consistency Checks
+
+We performed several verification queries to ensure data integrity across the integrated system:
+
+```sql
+-- Verify foreign table connections
+SELECT 'Foreign Guests' as table_name, COUNT(*) as record_count FROM foreign_guests
+UNION ALL
+SELECT 'Foreign Rooms', COUNT(*) FROM foreign_rooms
+UNION ALL
+SELECT 'Foreign Reservations', COUNT(*) FROM foreign_reservations
+UNION ALL
+SELECT 'Foreign CheckInOut', COUNT(*) FROM foreign_checkinout;
+
+-- Verify integration table population
+SELECT 'Reservation-Finance Links' as table_name, COUNT(*) as record_count FROM reservationfinancelink
+UNION ALL
+SELECT 'Reservation Sync', COUNT(*) FROM reservationsync;
+```
+
+**Verification Results:**
+![Integration Verification](images/integration/verification_results.png)
+*Place screenshot showing verification query results*
+
+---
+
+## 🔐 Security and Permissions
+
+We implemented appropriate security measures for the integrated system:
+
+```sql
+-- Grant permissions on foreign tables
+GRANT SELECT ON foreign_guests TO PUBLIC;
+GRANT SELECT ON foreign_rooms TO PUBLIC;
+GRANT SELECT ON foreign_reservations TO PUBLIC;
+GRANT SELECT ON foreign_checkinout TO PUBLIC;
+
+-- Grant permissions on integration tables
+GRANT ALL ON reservationfinancelink TO PUBLIC;
+GRANT ALL ON reservationsync TO PUBLIC;
+
+-- Grant permissions on views
+GRANT SELECT ON FinancialTransactionSummary TO PUBLIC;
+GRANT SELECT ON ReceptionFinancialOverview TO PUBLIC;
+```
+
+---
+
+## 📁 File Structure
+
+```
+Stage C/
+├── images/
+│   └── integration/
+│       ├── reception_dsd.png
+│       ├── reception_erd.png
+│       ├── integrated_erd.png
+│       ├── final_dsd.png
+│       ├── integration_commands.png
+│       ├── financial_view_sample.png
+│       ├── reception_view_sample.png
+│       ├── financial_query1.png
+│       ├── financial_query2.png
+│       ├── reception_query1.png
+│       ├── reception_query2.png
+│       └── verification_results.png
+├── Integrate.sql
+├── Views.sql
+├── backup3.sql
+└── Project_Report_Stage_C.md
+```
+
+---
+
+## 🎯 Key Achievements
+
+1. **Successful Integration**: Connected two separate hotel department databases using PostgreSQL Foreign Data Wrapper
+2. **Data Integrity**: Maintained referential integrity while allowing independent operation of both systems
+3. **Comprehensive Views**: Created meaningful views that serve both departments' needs
+4. **Performance Optimization**: Implemented indexes on linking tables for efficient cross-database queries
+5. **Security Implementation**: Proper permission management for integrated access
+
+---
+
+## 🔄 Future Enhancements
+
+1. **Real-time Synchronization**: Implement triggers for automatic data synchronization
+2. **Audit Trail**: Add logging for all cross-database operations
+3. **Performance Monitoring**: Implement query performance tracking for foreign data access
+4. **Backup Strategy**: Develop comprehensive backup strategy for integrated system
+5. **Error Handling**: Add robust error handling for network connectivity issues
+
+---
+
+## 📈 Business Impact
+
+The integration provides significant business value:
+
+- **Improved Customer Service**: Reception staff can instantly access payment information
+- **Financial Transparency**: Finance department has complete visibility into reservation-related transactions
+- **Operational Efficiency**: Reduced manual data entry and reconciliation efforts
+- **Better Reporting**: Comprehensive reports spanning both operational and financial data
+- **Data Consistency**: Single source of truth for guest financial information
