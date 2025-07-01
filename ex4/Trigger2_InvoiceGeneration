@@ -1,0 +1,148 @@
+-- Trigger2_InvoiceGeneration.sql
+
+-- First, create a trigger function
+CREATE OR REPLACE FUNCTION generate_invoice_and_calculate_tax()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_invoice_id INTEGER;
+    v_tax_rate DECIMAL;
+    v_tax_amount DECIMAL;
+    v_guest_info RECORD;
+    v_room_info RECORD;
+    v_existing_invoice BOOLEAN;
+    v_invoice_details TEXT;
+BEGIN
+    -- This trigger fires after a reservation is inserted with finance link
+    IF TG_OP = 'INSERT' THEN
+        
+        -- Get reservation details
+        SELECT 
+            fres.reservationid,
+            fres.checkindate,
+            fres.checkoutdate,
+            fres.roomnumber,
+            fres.guestid
+        INTO v_room_info
+        FROM foreign_reservations fres
+        WHERE fres.reservationid = NEW.reservationid;
+        
+        IF FOUND THEN
+            -- Get guest and room information
+            SELECT 
+                fg.guestid,
+                fg.firstname,
+                fg.lastname,
+                fg.email,
+                fg.phone,
+                fr.roomnumber,
+                fr.roomtype,
+                fr.price
+            INTO v_guest_info
+            FROM foreign_guests fg
+            JOIN foreign_rooms fr ON fr.roomnumber = v_room_info.roomnumber
+            WHERE fg.guestid = v_room_info.guestid;
+            
+            -- Calculate stay duration and base amount
+            DECLARE
+                v_stay_duration INTEGER;
+                v_base_amount DECIMAL;
+                v_total_amount DECIMAL;
+            BEGIN
+                v_stay_duration := v_room_info.checkoutdate - v_room_info.checkindate;
+                v_base_amount := v_guest_info.price * v_stay_duration;
+                
+                -- Get applicable tax rate
+                SELECT COALESCE(MAX(t.taxrate), 0)
+                INTO v_tax_rate
+                FROM tax t
+                WHERE t.startdate <= CURRENT_DATE
+                AND (t.enddate IS NULL OR t.enddate >= CURRENT_DATE);
+                
+                -- Calculate tax
+                v_tax_amount := v_base_amount * (v_tax_rate / 100);
+                v_total_amount := v_base_amount + v_tax_amount;
+                
+                -- Check if invoice already exists
+                SELECT EXISTS(
+                    SELECT 1 
+                    FROM invoice i
+                    WHERE i.invoicedate = CURRENT_DATE
+                    AND i.totalamount = v_total_amount
+                ) INTO v_existing_invoice;
+                
+                IF NOT v_existing_invoice THEN
+                    -- Generate invoice
+                    INSERT INTO invoice (invoicedate, totalamount, paymentstatus)
+                    VALUES (CURRENT_DATE, v_total_amount, 'Pending')
+                    RETURNING invoiceid INTO v_invoice_id;
+                    
+                    -- Create detailed invoice description
+                    v_invoice_details := 'Guest: ' || v_guest_info.firstname || ' ' || v_guest_info.lastname ||
+                                       E'\nRoom: ' || v_guest_info.roomnumber || ' (' || v_guest_info.roomtype || ')' ||
+                                       E'\nCheck-in: ' || v_room_info.checkindate ||
+                                       E'\nCheck-out: ' || v_room_info.checkoutdate ||
+                                       E'\nNights: ' || v_stay_duration ||
+                                       E'\nRate: $' || v_guest_info.price || '/night' ||
+                                       E'\nSubtotal: $' || v_base_amount ||
+                                       E'\nTax (' || v_tax_rate || '%): $' || v_tax_amount ||
+                                       E'\nTotal: $' || v_total_amount;
+                    
+                    -- Create expense record for the invoice
+                    INSERT INTO expense (expensedate, amount, description, supplierid)
+                    VALUES (
+                        CURRENT_DATE, 
+                        0, 
+                        'Invoice #' || v_invoice_id || E'\n' || v_invoice_details,
+                        (SELECT supplierid FROM supplier WHERE suppliername LIKE '%Hotel%' LIMIT 1)
+                    );
+                    
+                    -- Create transaction for the invoice amount
+                    INSERT INTO transaction (transactiondate, amount, transactiontype)
+                    VALUES (CURRENT_DATE, v_total_amount, 'Invoice')
+                    RETURNING transactionid INTO v_invoice_id;
+                    
+                    -- Link the transaction to the reservation
+                    UPDATE reservationfinancelink
+                    SET transactionid = v_invoice_id
+                    WHERE reservationid = NEW.reservationid
+                    AND transactionid = NEW.transactionid;
+                    
+                    RAISE NOTICE 'Invoice #% generated for reservation % - Total: $%', 
+                                v_invoice_id, NEW.reservationid, v_total_amount;
+                    
+                    -- Log in sync table
+                    INSERT INTO reservationsync (reservationid, syncdate, syncstatus, syncdetails)
+                    VALUES (
+                        NEW.reservationid,
+                        CURRENT_TIMESTAMP,
+                        'Invoice Generated',
+                        'Invoice #' || v_invoice_id || ' - Amount: $' || v_total_amount || 
+                        ' (including tax: $' || v_tax_amount || ')'
+                    );
+                END IF;
+            END;
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Error in invoice generation trigger: %', SQLERRM;
+        -- Log error but don't block the operation
+        INSERT INTO reservationsync (reservationid, syncdate, syncstatus, syncdetails)
+        VALUES (
+            NEW.reservationid,
+            CURRENT_TIMESTAMP,
+            'Invoice Error',
+            'Failed to generate invoice: ' || SQLERRM
+        );
+        RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger on reservationfinancelink table instead
+CREATE TRIGGER invoice_generation_trigger
+AFTER INSERT ON reservationfinancelink
+FOR EACH ROW
+EXECUTE FUNCTION generate_invoice_and_calculate_tax();

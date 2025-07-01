@@ -1,0 +1,59 @@
+-- Function2_GuestPaymentHistory.sql (תיקון סופי)
+CREATE OR REPLACE FUNCTION get_guest_payment_history(
+    p_guest_id INTEGER
+)
+RETURNS refcursor AS $$
+DECLARE
+    ref_cursor refcursor;
+    v_guest_exists BOOLEAN;
+    v_guest_name VARCHAR;
+BEGIN
+    -- Check if guest exists
+    SELECT EXISTS(
+        SELECT 1 FROM foreign_guests WHERE guest_id = p_guest_id
+    ) INTO v_guest_exists;
+    
+    IF NOT v_guest_exists THEN
+        RAISE EXCEPTION 'Guest ID % does not exist', p_guest_id
+            USING HINT = 'Please provide a valid guest ID';
+    END IF;
+    
+    -- Get guest name for logging
+    SELECT first_name || ' ' || last_name INTO v_guest_name
+    FROM foreign_guests
+    WHERE guest_id = p_guest_id;
+    
+    RAISE NOTICE 'Retrieving payment history for guest: %', v_guest_name;
+    
+    -- Open cursor with guest payment history
+    OPEN ref_cursor FOR
+        SELECT 
+            fg.guest_id,
+            fg.first_name || ' ' || fg.last_name as guest_name,
+            fres.reservation_id as reservationid,
+            fres.check_in_date as checkindate,
+            fres.check_out_date as checkoutdate,
+            fr.room_type,
+            fr.room_number as roomnumber,
+            t.transactionid,
+            t.transactiondate,
+            t.amount,
+            pm.paymenttype,
+            CASE 
+                WHEN t.amount >= (fr.price_per_night * (fres.check_out_date - fres.check_in_date)) THEN 'Paid in Full'
+                WHEN t.amount > 0 THEN 'Partial Payment'
+                ELSE 'Pending Payment'
+            END as payment_status
+        FROM foreign_guests fg
+        JOIN foreign_reservations fres ON fg.guest_id = fres.guest_id
+        JOIN foreign_rooms fr ON fres.room_number = fr.room_number
+        LEFT JOIN reservationfinancelink rfl ON fres.reservation_id = rfl.reservationid
+        LEFT JOIN transaction t ON rfl.transactionid = t.transactionid
+        LEFT JOIN has h ON t.transactionid = h.transactionid
+        LEFT JOIN paymentmethod pm ON h.paymentmethodid = pm.paymentmethodid
+        WHERE fg.guest_id = p_guest_id
+        ORDER BY fres.check_in_date DESC;
+    
+    RETURN ref_cursor;
+END;
+$$ LANGUAGE plpgsql;

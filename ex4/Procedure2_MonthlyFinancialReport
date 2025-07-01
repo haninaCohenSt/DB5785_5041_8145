@@ -1,0 +1,115 @@
+-- Procedure2_MonthlyFinancialReport.sql
+CREATE OR REPLACE PROCEDURE generate_monthly_financial_report(
+    p_month INTEGER,
+    p_year INTEGER,
+    OUT p_total_revenue DECIMAL,
+    OUT p_total_expenses DECIMAL,
+    OUT p_net_profit DECIMAL,
+    OUT p_occupancy_rate DECIMAL
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_start_date DATE;
+    v_end_date DATE;
+    v_tax_amount DECIMAL;
+    v_room_nights INTEGER;
+    v_total_room_nights INTEGER;
+    cur_expenses CURSOR FOR 
+        SELECT e.expenseid, e.expensedate, e.amount, e.description
+        FROM expense e
+        WHERE EXTRACT(MONTH FROM e.expensedate) = p_month
+        AND EXTRACT(YEAR FROM e.expensedate) = p_year;
+    v_expense_record RECORD;
+BEGIN
+    -- Initialize dates
+    v_start_date := DATE(p_year || '-' || p_month || '-01');
+    v_end_date := (v_start_date + INTERVAL '1 month' - INTERVAL '1 day')::DATE;
+    
+    -- Calculate revenue
+    SELECT COALESCE(SUM(t.amount), 0)
+    INTO p_total_revenue
+    FROM transaction t
+    WHERE t.transactiondate >= v_start_date
+    AND t.transactiondate <= v_end_date
+    AND t.transactiontype = 'Payment';
+    
+    -- Process expenses using explicit cursor
+    p_total_expenses := 0;
+    OPEN cur_expenses;
+    LOOP
+        FETCH cur_expenses INTO v_expense_record;
+        EXIT WHEN NOT FOUND;
+        
+        p_total_expenses := p_total_expenses + v_expense_record.amount;
+        
+        -- Log each expense
+        RAISE NOTICE 'Processing expense: % - $%', 
+                    v_expense_record.description, 
+                    v_expense_record.amount;
+    END LOOP;
+    CLOSE cur_expenses;
+    
+    -- Calculate taxes (using implicit cursor)
+    FOR v_expense_record IN 
+        SELECT t.taxrate, SUM(trans.amount) as taxable_amount
+        FROM tax t
+        JOIN transaction trans ON trans.transactiondate >= v_start_date 
+                               AND trans.transactiondate <= v_end_date
+        WHERE t.startdate <= v_end_date
+        GROUP BY t.taxrate
+    LOOP
+        v_tax_amount := v_expense_record.taxable_amount * (v_expense_record.taxrate / 100);
+        p_total_expenses := p_total_expenses + v_tax_amount;
+    END LOOP;
+    
+    -- Calculate net profit
+    p_net_profit := p_total_revenue - p_total_expenses;
+    
+    -- Calculate occupancy rate
+    SELECT 
+        COUNT(DISTINCT fc.reservationid),
+        COUNT(DISTINCT fr.roomnumber) * (v_end_date - v_start_date + 1)
+    INTO v_room_nights, v_total_room_nights
+    FROM foreign_checkinout fc
+    JOIN foreign_reservations fres ON fc.reservationid = fres.reservationid
+    JOIN foreign_rooms fr ON fres.roomnumber = fr.roomnumber
+    WHERE fc.checkindate <= v_end_date
+    AND (fc.checkoutdate >= v_start_date OR fc.checkoutdate IS NULL);
+    
+    IF v_total_room_nights > 0 THEN
+        p_occupancy_rate := (v_room_nights::DECIMAL / v_total_room_nights) * 100;
+    ELSE
+        p_occupancy_rate := 0;
+    END IF;
+    
+    -- Insert summary into expense for record keeping
+    INSERT INTO expense (expensedate, amount, description, supplierid)
+    VALUES (v_end_date, 0, 
+            'Monthly Report: Revenue=$' || p_total_revenue || 
+            ', Expenses=$' || p_total_expenses || 
+            ', Profit=$' || p_net_profit || 
+            ', Occupancy=' || ROUND(p_occupancy_rate, 2) || '%',
+            (SELECT supplierid FROM supplier LIMIT 1));
+    
+    -- Log final results
+    RAISE NOTICE 'Monthly Financial Report for %/%:', p_month, p_year;
+    RAISE NOTICE 'Total Revenue: $%', p_total_revenue;
+    RAISE NOTICE 'Total Expenses: $%', p_total_expenses;
+    RAISE NOTICE 'Net Profit: $%', p_net_profit;
+    RAISE NOTICE 'Occupancy Rate: %', ROUND(p_occupancy_rate, 2) || '%';
+    
+EXCEPTION
+    WHEN division_by_zero THEN
+        RAISE NOTICE 'Division by zero occurred - setting occupancy to 0';
+        p_occupancy_rate := 0;
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error generating report: %', SQLERRM;
+        -- Set defaults on error
+        p_total_revenue := 0;
+        p_total_expenses := 0;
+        p_net_profit := 0;
+        p_occupancy_rate := 0;
+        RAISE;
+END;
+$$;

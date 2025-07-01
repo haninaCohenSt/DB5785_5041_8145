@@ -1,0 +1,112 @@
+-- Trigger1_PaymentTracking.sql
+
+-- First, create a trigger function
+CREATE OR REPLACE FUNCTION track_payment_and_update_room_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_reservation_record RECORD;
+    v_total_paid DECIMAL;
+    v_expected_payment DECIMAL;
+    v_payment_status VARCHAR(50);
+    v_days_stayed INTEGER;
+BEGIN
+    -- This trigger fires when a new transaction is inserted
+    IF TG_OP = 'INSERT' AND NEW.transactiontype = 'Payment' THEN
+        
+        -- Get reservation details linked to this payment
+        SELECT 
+            rfl.reservationid,
+            fres.roomnumber,
+            fres.checkindate,
+            fres.checkoutdate,
+            fres.guestid,
+            fr.price,
+            fg.firstname || ' ' || fg.lastname as guest_name
+        INTO v_reservation_record
+        FROM reservationfinancelink rfl
+        JOIN foreign_reservations fres ON rfl.reservationid = fres.reservationid
+        JOIN foreign_rooms fr ON fres.roomnumber = fr.roomnumber
+        JOIN foreign_guests fg ON fres.guestid = fg.guestid
+        WHERE rfl.transactionid = NEW.transactionid;
+        
+        IF FOUND THEN
+            -- Calculate total days and expected payment
+            v_days_stayed := v_reservation_record.checkoutdate - v_reservation_record.checkindate;
+            v_expected_payment := v_reservation_record.price * v_days_stayed;
+            
+            -- Calculate total paid for this reservation
+            SELECT COALESCE(SUM(t.amount), 0)
+            INTO v_total_paid
+            FROM reservationfinancelink rfl2
+            JOIN transaction t ON rfl2.transactionid = t.transactionid
+            WHERE rfl2.reservationid = v_reservation_record.reservationid
+            AND t.transactiontype = 'Payment';
+            
+            -- Determine payment status
+            IF v_total_paid >= v_expected_payment THEN
+                v_payment_status := 'Paid in Full';
+                
+                -- Update room status to available if checkout date has passed
+                IF v_reservation_record.checkoutdate <= CURRENT_DATE THEN
+                    UPDATE foreign_rooms
+                    SET availability = TRUE
+                    WHERE roomnumber = v_reservation_record.roomnumber;
+                    
+                    RAISE NOTICE 'Room % is now available', v_reservation_record.roomnumber;
+                END IF;
+            ELSIF v_total_paid > v_expected_payment * 0.5 THEN
+                v_payment_status := 'Partial Payment >50%';
+            ELSIF v_total_paid > 0 THEN
+                v_payment_status := 'Partial Payment <50%';
+            ELSE
+                v_payment_status := 'Pending';
+            END IF;
+            
+            -- Log payment tracking
+            INSERT INTO reservationsync (reservationid, syncdate, syncstatus, syncdetails)
+            VALUES (
+                v_reservation_record.reservationid,
+                CURRENT_TIMESTAMP,
+                v_payment_status,
+                'Payment of $' || NEW.amount || ' received. Total paid: $' || v_total_paid ||
+                ' of $' || v_expected_payment || ' (' || 
+                ROUND((v_total_paid / v_expected_payment * 100), 2) || '%)'
+            );
+            
+            RAISE NOTICE 'Payment processed for %: $% (Total: $% of $%)', 
+                        v_reservation_record.guest_name, 
+                        NEW.amount, 
+                        v_total_paid, 
+                        v_expected_payment;
+        END IF;
+        
+    ELSIF TG_OP = 'UPDATE' AND NEW.transactiontype = 'Refund' AND OLD.transactiontype = 'Payment' THEN
+        -- Handle refunds
+        UPDATE reservationsync 
+        SET syncstatus = 'Refund Processed',
+            syncdetails = 'Refund of $' || NEW.amount || ' processed on ' || CURRENT_DATE,
+            syncdate = CURRENT_TIMESTAMP
+        WHERE reservationid IN (
+            SELECT reservationid 
+            FROM reservationfinancelink 
+            WHERE transactionid = NEW.transactionid
+        );
+        
+        RAISE NOTICE 'Refund processed: $%', NEW.amount;
+    END IF;
+    
+    RETURN NEW;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Error in payment tracking trigger: %', SQLERRM;
+        -- Still return NEW to allow the transaction to complete
+        RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+CREATE TRIGGER payment_tracking_trigger
+AFTER INSERT OR UPDATE ON transaction
+FOR EACH ROW
+EXECUTE FUNCTION track_payment_and_update_room_status();
