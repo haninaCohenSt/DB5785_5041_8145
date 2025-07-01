@@ -534,9 +534,9 @@ WHERE transactionid IN (
 
 📸 Screenshot Q – Payment linkage cleaned
 
-![Before – Delete old payment method links](images/erd/Bd4.png)
+![Before – Delete old payment method links](images/erd/Bd1.png)
 
-![After – Delete old payment method links](images/erd/Ad4.png)
+![After – Delete old payment method links](images/erd/Ad1.png)
 
 ---
 
