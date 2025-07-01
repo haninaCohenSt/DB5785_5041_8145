@@ -286,6 +286,8 @@ This stage focuses on querying the database, enforcing integrity constraints, an
 
 We wrote complex SELECT, DELETE, and UPDATE queries that span multiple tables, utilize aggregate functions, joins, date logic, and grouping mechanisms.
 
+All queries are numbered sequentially for clarity.
+
 #### 🟢 Query 1 – Expenses with Suppliers and Transactions
 
 ```sql
@@ -301,8 +303,7 @@ LEFT JOIN Transaction T ON E.ExpenseID = T.ExpenseID;
 ```
 
 📸 Screenshot A – Result with columns from multiple tables
-
-!\[image]\([https://github.com/user-attachments/assets/453ba1ff-9a45-494d-a10a-86af325894d2](https://github.com/user-attachments/assets/453ba1ff-9a45-494d-a10a-86af325894d2))
+![Query 1](images/erd/q1.png)
 
 #### 🟢 Query 2 – Payment Methods Used in Transactions
 
@@ -318,8 +319,7 @@ JOIN paymentmethod PM ON U.paymentmethodid = PM.paymentmethodid;
 ```
 
 📸 Screenshot B – Results with detailed method names
-
-!\[image]\([https://github.com/user-attachments/assets/fcf0461b-7706-46af-be58-15741cb47917](https://github.com/user-attachments/assets/fcf0461b-7706-46af-be58-15741cb47917))
+![Query 2](images/erd/q2.png)
 
 #### 🟢 Query 3 – Total Spending per Supplier
 
@@ -334,8 +334,35 @@ GROUP BY S.SupplierName;
 ```
 
 📸 Screenshot C – Aggregate spending by supplier
+![Query 3](images/erd/q3.png)
 
-#### 🟢 Query 4 – Transaction Summary by Supplier, Category, and Payment Method
+#### 🟢 Query 4 – Supplier Expense Counts
+
+```sql
+SELECT 
+  Supplier.SupplierName,
+  COUNT(Expense.ExpenseID) AS TotalExpenses
+FROM Supplier
+LEFT JOIN Expense ON Supplier.SupplierID = Expense.SupplierID
+GROUP BY Supplier.SupplierName;
+```
+
+📸 Screenshot D – Number of expenses per supplier
+![Query 4](images/erd/q4.png)
+
+#### 🟢 Query 5 – Transactions Without Taxes
+
+```sql
+SELECT T.transactionid
+FROM transaction T
+LEFT JOIN "transactionHasTax" H ON T.transactionid = H.transactionid
+WHERE H.taxid IS NULL;
+```
+
+📸 Screenshot E – Transactions missing tax relationships
+![Query 5](images/erd/q5.png)
+
+#### 🟢 Query 6 – Transaction Summary by Supplier, Category, and Payment Method
 
 ```sql
 SELECT 
@@ -352,9 +379,10 @@ LEFT JOIN "paymentMethodUsedInTransaction" U ON T.TransactionID = U.TransactionI
 LEFT JOIN PaymentMethod PM ON U.PaymentMethodID = PM.PaymentMethodID;
 ```
 
-📸 Screenshot D – Full context of each transaction
+📸 Screenshot F – Full context of each transaction
+![Query 6](images/erd/q6.png)
 
-#### 🟢 Query 5 – Supplier with Highest Total Transaction Amount
+#### 🟢 Query 7 – Supplier with Highest Total Transaction Amount
 
 ```sql
 SELECT SupplierName
@@ -371,9 +399,10 @@ FROM (
 ) AS TopSupplier;
 ```
 
-📸 Screenshot E – Top supplier only
+📸 Screenshot G – Top supplier only
+![Query 7](images/erd/q7.png)
 
-#### 🟢 Query 6 – Invoices from the Last 30 Days
+#### 🟢 Query 8 – Invoices from the Last 30 Days
 
 ```sql
 SELECT *
@@ -381,9 +410,10 @@ FROM Transaction
 WHERE Date >= CURRENT_DATE - INTERVAL '30 days';
 ```
 
-📸 Screenshot F – Recent transactions
+📸 Screenshot H – Recent transactions
+![Query 8](images/erd/q8.png)
 
-#### 🟢 Query 7 – Final Invoice Amounts (after Discount)
+#### 🟢 Query 9 – Final Invoice Amounts (after Discount)
 
 ```sql
 SELECT 
@@ -395,24 +425,10 @@ FROM Invoice
 JOIN Transaction ON Invoice.TransactionID = Transaction.TransactionID;
 ```
 
-📸 Screenshot G – Invoice totals with discount
+📸 Screenshot I – Invoice totals with discount
+![Query 9](images/erd/q9.png)
 
-#### 🟢 Query 8 – Supplier Expense Counts
-
-```sql
-SELECT 
-  Supplier.SupplierName,
-  COUNT(Expense.ExpenseID) AS TotalExpenses
-FROM Supplier
-LEFT JOIN Expense ON Supplier.SupplierID = Expense.SupplierID
-GROUP BY Supplier.SupplierName;
-```
-
-📸 Screenshot H – Number of expenses per supplier
-
-#### 🔄 Additional SELECT Queries
-
-* Transactions above threshold:
+#### 🟢 Query 10 – Transactions Above a Threshold
 
 ```sql
 SELECT * 
@@ -420,23 +436,20 @@ FROM Transaction
 WHERE Amount > 10000;
 ```
 
-* Transactions without tax:
+📸 Screenshot J – High value transactions
+![Query 10](images/erd/q10.png)
 
-```sql
-SELECT T.transactionid
-FROM transaction T
-LEFT JOIN "transactionHasTax" H ON T.transactionid = H.transactionid
-WHERE H.taxid IS NULL;
-```
-
-* Average tax rate:
+#### 🟢 Query 11 – Average Tax Rate
 
 ```sql
 SELECT AVG(Percentage) AS AvgTaxRate
 FROM Tax;
 ```
 
-* Tax details per transaction:
+📸 Screenshot K – Mean percentage
+![query 11](images/erd/q11.png)
+
+#### 🟢 Query 12 – Tax Details Per Transaction
 
 ```sql
 SELECT 
@@ -449,7 +462,10 @@ JOIN "transactionHasTax" H ON T.transactionid = H.transactionid
 JOIN tax ON H.taxid = Tax.taxid;
 ```
 
-* Top 5 suppliers by transaction count:
+📸 Screenshot L – Taxes with amounts and deadlines
+![query 12](images/erd/q12.png)
+
+#### 🟢 Query 13 – Top 5 Suppliers by Transaction Count
 
 ```sql
 SELECT 
@@ -463,20 +479,27 @@ ORDER BY TransactionCount DESC
 LIMIT 5;
 ```
 
+📸 Screenshot M – Supplier rankings
+![query 13](images/erd/q13.png)
+
+
 ---
 
 ### 🧹 DELETE Operations
 
-#### Delete Old Transactions
+#### Delete Old Transactions 
 
 ```sql
 DELETE FROM transaction
 WHERE date < '2025-06-20';
 ```
 
-📸 Screenshot I – `transaction` table before and after deletion
+📸 Screenshot N – Before and after deletion
+![Before – Delete old transactions](images/erd/Bd1.png)
 
-#### Delete Invoices Linked to Rejected Transactions
+![After – Delete old transactions](images/erd/Ad1.png)
+
+#### Delete Rejected Invoices 
 
 ```sql
 DELETE FROM invoice
@@ -487,9 +510,13 @@ WHERE transactionid IN (
 );
 ```
 
-📸 Screenshot J – `invoice` table before and after deletion
+📸 Screenshot O – Invoice table before and after
 
-#### Delete Old Tax Relationships
+![Before – Delete rejected invoices](images/erd/Bd2.png)
+
+![After – Delete rejected invoices](images/erd/Ad2.png)
+
+#### Delete Old Tax Links 
 
 ```sql
 DELETE FROM "transactionHasTax"
@@ -500,9 +527,13 @@ WHERE transactionid IN (
 );
 ```
 
-📸 Screenshot K – tax relationships before and after
+📸 Screenshot P – Relationship cleanup
 
-#### Delete Old Payment Links
+![Before – Delete old tax relationships](images/erd/Bd3.png)
+
+![After – Delete old tax relationships](images/erd/Ad3.png)
+
+#### Delete Old Payment Links 
 
 ```sql
 DELETE FROM "paymentMethodUsedInTransaction"
@@ -513,13 +544,17 @@ WHERE transactionid IN (
 );
 ```
 
-📸 Screenshot L – linkage table before and after
+📸 Screenshot Q – Payment linkage cleaned
+
+![Before – Delete old payment method links](images/erd/Bd4.png)
+
+![After – Delete old payment method links](images/erd/Ad4.png)
 
 ---
 
 ### ✏️ UPDATE Operations
 
-#### Update Discounts for Type D
+#### Update Invoice Discounts 
 
 ```sql
 UPDATE invoice
@@ -527,8 +562,11 @@ SET discount = 0.10
 WHERE type = 'D';
 ```
 
-#### Update Supplier Contact Details
+![Before – Update discount](images/erd/Bu1.png)
 
+![After – Update discount](images/erd/Au1.png)
+
+#### Standardize Supplier Contact 
 ```sql
 UPDATE supplier
 SET contactdetails = CONCAT(suppliername, '@business.com')
@@ -538,7 +576,11 @@ OR contactdetails NOT LIKE '%@%'
 OR contactdetails = 'supplier1@domain.com, 050-1234501';
 ```
 
-#### Apply Late Fee to Old Pending Transactions
+![Before – Update supplier contact](images/erd/Bu2.png)
+
+![After – Update supplier contact](images/erd/Au2.png)
+
+#### Apply Late Fees 
 
 ```sql
 UPDATE transaction
@@ -547,13 +589,16 @@ WHERE date < CURRENT_DATE - INTERVAL '30 days'
 AND status = 'Pending';
 ```
 
-📸 Screenshots M–O – Before and after for each UPDATE
+![Before – Apply late fee](images/erd/Bu3.png)
+
+![After – Apply late fee](images/erd/Au3.png)
+
 
 ---
 
 ### ✅ Transaction Control
 
-#### COMMIT Example
+#### COMMIT Example 
 
 ```sql
 BEGIN;
@@ -563,9 +608,10 @@ WHERE status = 'Pending';
 COMMIT;
 ```
 
-📸 Screenshot P – Status change with final state
+📸 Screenshot S – Final committed state
+![COMMIT](images/erd/commit.png)
 
-#### ROLLBACK Example
+#### ROLLBACK Example (Query 22)
 
 ```sql
 BEGIN;
@@ -578,32 +624,32 @@ WHERE contactdetails = 'updated@example.com, 050-1234501';
 ROLLBACK;
 ```
 
-📸 Screenshot Q – Supplier table before, after update, and after rollback
+📸 Screenshot T – Reverted update
+![Before&After – Rollback test](images/erd/roollback.png)
 
 ---
 
 ### 📏 Constraints
 
-#### 1. NOT NULL on Transaction Amount
+#### Constraint 1 – NOT NULL on Transaction Amount
 
 ```sql
 ALTER TABLE transaction
 ALTER COLUMN amount SET NOT NULL;
 ```
-
-#### 2. DEFAULT on Payment Method Details
+![](images/erd/A1.png)
+#### Constraint 2 – DEFAULT on Payment Method Details
 
 ```sql
 ALTER TABLE paymentmethod
 ALTER COLUMN methoddetails SET DEFAULT 'USD';
 ```
-
-#### 3. DEFAULT on Transaction Status
+![](images/erd/A2.png)
+#### Constraint 3 – DEFAULT on Transaction Status
 
 ```sql
 ALTER TABLE transaction
 ALTER COLUMN status SET DEFAULT 'Approved';
 ```
-
-📸 Screenshot R – Attempt invalid insert, default checks
+![](images/erd/A3.png)
 
