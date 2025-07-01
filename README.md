@@ -564,9 +564,9 @@ OR contactdetails NOT LIKE '%@%'
 OR contactdetails = 'supplier1@domain.com, 050-1234501';
 ```
 
-![Before – Update supplier contact](images/erd/Bu2.png)
+![Before – Update supplier contact](images/erd/Bu3.png)
 
-![After – Update supplier contact](images/erd/Au2.png)
+![After – Update supplier contact](images/erd/Au3.png)
 
 #### Apply Late Fees 
 
@@ -577,9 +577,9 @@ WHERE date < CURRENT_DATE - INTERVAL '30 days'
 AND status = 'Pending';
 ```
 
-![Before – Apply late fee](images/erd/Bu3.png)
+![Before – Apply late fee](images/erd/Bu2.png)
 
-![After – Apply late fee](images/erd/Au3.png)
+![After – Apply late fee](images/erd/Au2.png)
 
 
 ---
