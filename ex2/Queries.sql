@@ -29,13 +29,6 @@ JOIN Transaction T ON E.ExpenseID = T.ExpenseID
 GROUP BY S.SupplierName;
 
 
-
---Delete all transactions before a certain date
-SELECT *
-FROM transaction
-WHERE date < '2025-06-20';
-
-
 --Find all suppliers and how many expenses are linked to each
 SELECT 
   Supplier.SupplierName,
