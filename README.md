@@ -669,9 +669,8 @@ Git for version control (stage-c tag)
 
 🧾 DSDs
 
-financial_dsd.png: /images/integration/financial_dsd.png
+![reception_dsd](ex3/ERD.png)
 
-reception_dsd.png: /images/integration/reception_dsd.png
 
 integrated_dsd.png: /images/integration/integrated_dsd.png
 
