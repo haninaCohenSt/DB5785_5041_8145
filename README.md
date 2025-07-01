@@ -500,9 +500,9 @@ WHERE transactionid IN (
 
 📸 Screenshot O – Invoice table before and after
 
-![Before – Delete rejected invoices](images/erd/Bd2.png)
+![Before – Delete rejected invoices](images/erd/Bd1.png)
 
-![After – Delete rejected invoices](images/erd/Ad2.png)
+![After – Delete rejected invoices](images/erd/Ad1.png)
 
 #### Delete Old Tax Links 
 
@@ -517,9 +517,9 @@ WHERE transactionid IN (
 
 📸 Screenshot P – Relationship cleanup
 
-![Before – Delete old tax relationships](images/erd/Bd3.png)
+![Before – Delete old tax relationships](images/erd/Bd2.png)
 
-![After – Delete old tax relationships](images/erd/Ad3.png)
+![After – Delete old tax relationships](images/erd/Ad2.png)
 
 #### Delete Old Payment Links 
 
@@ -534,9 +534,9 @@ WHERE transactionid IN (
 
 📸 Screenshot Q – Payment linkage cleaned
 
-![Before – Delete old payment method links](images/erd/Bd1.png)
+![Before – Delete old payment method links](images/erd/Bd3.png)
 
-![After – Delete old payment method links](images/erd/Ad1.png)
+![After – Delete old payment method links](images/erd/Ad3.png)
 
 ---
 
