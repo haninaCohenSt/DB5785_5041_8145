@@ -487,18 +487,6 @@ LIMIT 5;
 
 ### 🧹 DELETE Operations
 
-#### Delete Old Transactions 
-
-```sql
-DELETE FROM transaction
-WHERE date < '2025-06-20';
-```
-
-📸 Screenshot N – Before and after deletion
-![Before – Delete old transactions](images/erd/Bd1.png)
-
-![After – Delete old transactions](images/erd/Ad1.png)
-
 #### Delete Rejected Invoices 
 
 ```sql
