@@ -633,12 +633,12 @@ ALTER COLUMN amount SET NOT NULL;
 ALTER TABLE paymentmethod
 ALTER COLUMN methoddetails SET DEFAULT 'USD';
 ```
-![](images/erd/A2.png)
+![](images/erd/A3.png)
 #### Constraint 3 – DEFAULT on Transaction Status
 
 ```sql
 ALTER TABLE transaction
 ALTER COLUMN status SET DEFAULT 'Approved';
 ```
-![](images/erd/A3.png)
+![](images/erd/A2.png)
 
