@@ -276,3 +276,334 @@ JOIN Tax t ON tr.TransactionID = t.TransactionID;
 -- Query the view
 SELECT * FROM ExpenseSummary;
 ```
+## 📘 Stage B – Queries, Constraints, and Transactions
+
+This stage focuses on querying the database, enforcing integrity constraints, and demonstrating transactional control. The work in this stage reflects the business logic needed for interacting with the financial subsystem of our hotel management system.
+
+---
+
+### 🔍 SQL Queries
+
+We wrote complex SELECT, DELETE, and UPDATE queries that span multiple tables, utilize aggregate functions, joins, date logic, and grouping mechanisms.
+
+#### 🟢 Query 1 – Expenses with Suppliers and Transactions
+
+```sql
+SELECT 
+  E.ExpenseID,
+  E.Description,
+  E.Category,
+  S.SupplierName,
+  T.Amount
+FROM Expense E
+JOIN Supplier S ON E.SupplierID = S.SupplierID
+LEFT JOIN Transaction T ON E.ExpenseID = T.ExpenseID;
+```
+
+📸 Screenshot A – Result with columns from multiple tables
+
+!\[image]\([https://github.com/user-attachments/assets/453ba1ff-9a45-494d-a10a-86af325894d2](https://github.com/user-attachments/assets/453ba1ff-9a45-494d-a10a-86af325894d2))
+
+#### 🟢 Query 2 – Payment Methods Used in Transactions
+
+```sql
+SELECT 
+  T.transactionid,
+  T.date,
+  PM.methodname,
+  PM.methoddetails
+FROM transaction T
+JOIN "paymentMethodUsedInTransaction" U ON T.transactionid = U.transactionid
+JOIN paymentmethod PM ON U.paymentmethodid = PM.paymentmethodid;
+```
+
+📸 Screenshot B – Results with detailed method names
+
+!\[image]\([https://github.com/user-attachments/assets/fcf0461b-7706-46af-be58-15741cb47917](https://github.com/user-attachments/assets/fcf0461b-7706-46af-be58-15741cb47917))
+
+#### 🟢 Query 3 – Total Spending per Supplier
+
+```sql
+SELECT 
+  S.SupplierName,
+  SUM(T.Amount) AS TotalSpent
+FROM Supplier S
+JOIN Expense E ON S.SupplierID = E.SupplierID
+JOIN Transaction T ON E.ExpenseID = T.ExpenseID
+GROUP BY S.SupplierName;
+```
+
+📸 Screenshot C – Aggregate spending by supplier
+
+#### 🟢 Query 4 – Transaction Summary by Supplier, Category, and Payment Method
+
+```sql
+SELECT 
+    T.TransactionID,
+    T.Date,
+    T.Amount,
+    E.Category,
+    S.SupplierName,
+    PM.MethodName
+FROM Transaction T
+LEFT JOIN Expense E ON T.ExpenseID = E.ExpenseID
+LEFT JOIN Supplier S ON E.SupplierID = S.SupplierID
+LEFT JOIN "paymentMethodUsedInTransaction" U ON T.TransactionID = U.TransactionID
+LEFT JOIN PaymentMethod PM ON U.PaymentMethodID = PM.PaymentMethodID;
+```
+
+📸 Screenshot D – Full context of each transaction
+
+#### 🟢 Query 5 – Supplier with Highest Total Transaction Amount
+
+```sql
+SELECT SupplierName
+FROM (
+  SELECT 
+    S.SupplierName,
+    SUM(T.Amount) AS Total
+  FROM Supplier S
+  JOIN Expense E ON S.SupplierID = E.SupplierID
+  JOIN Transaction T ON T.ExpenseID = E.ExpenseID
+  GROUP BY S.SupplierName
+  ORDER BY Total DESC
+  LIMIT 1
+) AS TopSupplier;
+```
+
+📸 Screenshot E – Top supplier only
+
+#### 🟢 Query 6 – Invoices from the Last 30 Days
+
+```sql
+SELECT *
+FROM Transaction
+WHERE Date >= CURRENT_DATE - INTERVAL '30 days';
+```
+
+📸 Screenshot F – Recent transactions
+
+#### 🟢 Query 7 – Final Invoice Amounts (after Discount)
+
+```sql
+SELECT 
+  Invoice.InvoiceID,
+  Transaction.Amount,
+  Invoice.Discount,
+  (Transaction.Amount - COALESCE(Invoice.Discount, 0)) AS FinalAmount
+FROM Invoice
+JOIN Transaction ON Invoice.TransactionID = Transaction.TransactionID;
+```
+
+📸 Screenshot G – Invoice totals with discount
+
+#### 🟢 Query 8 – Supplier Expense Counts
+
+```sql
+SELECT 
+  Supplier.SupplierName,
+  COUNT(Expense.ExpenseID) AS TotalExpenses
+FROM Supplier
+LEFT JOIN Expense ON Supplier.SupplierID = Expense.SupplierID
+GROUP BY Supplier.SupplierName;
+```
+
+📸 Screenshot H – Number of expenses per supplier
+
+#### 🔄 Additional SELECT Queries
+
+* Transactions above threshold:
+
+```sql
+SELECT * 
+FROM Transaction
+WHERE Amount > 10000;
+```
+
+* Transactions without tax:
+
+```sql
+SELECT T.transactionid
+FROM transaction T
+LEFT JOIN "transactionHasTax" H ON T.transactionid = H.transactionid
+WHERE H.taxid IS NULL;
+```
+
+* Average tax rate:
+
+```sql
+SELECT AVG(Percentage) AS AvgTaxRate
+FROM Tax;
+```
+
+* Tax details per transaction:
+
+```sql
+SELECT 
+  T.transactionid,
+  Tax.taxamount,
+  Tax.percentage,
+  Tax.duedate
+FROM transaction T
+JOIN "transactionHasTax" H ON T.transactionid = H.transactionid
+JOIN tax ON H.taxid = Tax.taxid;
+```
+
+* Top 5 suppliers by transaction count:
+
+```sql
+SELECT 
+  S.SupplierName,
+  COUNT(T.TransactionID) AS TransactionCount
+FROM Supplier S
+JOIN Expense E ON S.SupplierID = E.SupplierID
+JOIN Transaction T ON E.ExpenseID = T.ExpenseID
+GROUP BY S.SupplierName
+ORDER BY TransactionCount DESC
+LIMIT 5;
+```
+
+---
+
+### 🧹 DELETE Operations
+
+#### Delete Old Transactions
+
+```sql
+DELETE FROM transaction
+WHERE date < '2025-06-20';
+```
+
+📸 Screenshot I – `transaction` table before and after deletion
+
+#### Delete Invoices Linked to Rejected Transactions
+
+```sql
+DELETE FROM invoice
+WHERE transactionid IN (
+    SELECT transactionid
+    FROM transaction
+    WHERE status = 'Rejected'
+);
+```
+
+📸 Screenshot J – `invoice` table before and after deletion
+
+#### Delete Old Tax Relationships
+
+```sql
+DELETE FROM "transactionHasTax"
+WHERE transactionid IN (
+    SELECT transactionid 
+    FROM transaction 
+    WHERE status = 'Completed' AND date < '2025-05-06'
+);
+```
+
+📸 Screenshot K – tax relationships before and after
+
+#### Delete Old Payment Links
+
+```sql
+DELETE FROM "paymentMethodUsedInTransaction"
+WHERE transactionid IN (
+    SELECT transactionid 
+    FROM transaction 
+    WHERE status = 'Completed' AND date < '2025-05-06'
+);
+```
+
+📸 Screenshot L – linkage table before and after
+
+---
+
+### ✏️ UPDATE Operations
+
+#### Update Discounts for Type D
+
+```sql
+UPDATE invoice
+SET discount = 0.10
+WHERE type = 'D';
+```
+
+#### Update Supplier Contact Details
+
+```sql
+UPDATE supplier
+SET contactdetails = CONCAT(suppliername, '@business.com')
+WHERE contactdetails IS NULL 
+OR contactdetails = '' 
+OR contactdetails NOT LIKE '%@%'
+OR contactdetails = 'supplier1@domain.com, 050-1234501';
+```
+
+#### Apply Late Fee to Old Pending Transactions
+
+```sql
+UPDATE transaction
+SET amount = amount * 1.05
+WHERE date < CURRENT_DATE - INTERVAL '30 days'
+AND status = 'Pending';
+```
+
+📸 Screenshots M–O – Before and after for each UPDATE
+
+---
+
+### ✅ Transaction Control
+
+#### COMMIT Example
+
+```sql
+BEGIN;
+UPDATE transaction
+SET status = 'Completed'
+WHERE status = 'Pending';
+COMMIT;
+```
+
+📸 Screenshot P – Status change with final state
+
+#### ROLLBACK Example
+
+```sql
+BEGIN;
+UPDATE supplier 
+SET contactdetails = 'updated@example.com, 050-1234501' 
+WHERE contactdetails IS NULL OR contactdetails = 'supplier1@domain.com, 050-1234501';
+-- Check state
+SELECT * FROM supplier
+WHERE contactdetails = 'updated@example.com, 050-1234501';
+ROLLBACK;
+```
+
+📸 Screenshot Q – Supplier table before, after update, and after rollback
+
+---
+
+### 📏 Constraints
+
+#### 1. NOT NULL on Transaction Amount
+
+```sql
+ALTER TABLE transaction
+ALTER COLUMN amount SET NOT NULL;
+```
+
+#### 2. DEFAULT on Payment Method Details
+
+```sql
+ALTER TABLE paymentmethod
+ALTER COLUMN methoddetails SET DEFAULT 'USD';
+```
+
+#### 3. DEFAULT on Transaction Status
+
+```sql
+ALTER TABLE transaction
+ALTER COLUMN status SET DEFAULT 'Approved';
+```
+
+📸 Screenshot R – Attempt invalid insert, default checks
+
