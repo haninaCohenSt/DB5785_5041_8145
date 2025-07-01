@@ -668,7 +668,7 @@ This stage focuses on integrating two separate database systems: the **Financial
 ### 🗱 Step-by-Step Integration Workflow
 
 1. **DSD Creation from Reception DB**
-   We received a backup of the Reception system and reverse-engineered the table structures to build its **DSD**.
+   We made the Reception system and made the table structures to build its **DSD**.
 
 2. **ERD Reverse Engineering**
    From the DSD, we created a logical **ERD** for the reception system, identifying key entities like `reservations`, `guests`, `rooms`, and `checkinout`.
