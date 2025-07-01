@@ -643,70 +643,90 @@ ALTER COLUMN status SET DEFAULT 'Approved';
 ![](images/erd/A2.png)
 
 
-## 🧹 Stage C – Integration & Views
+🧹 Stage C – Integration & Views
 
-This stage focuses on integrating two separate database systems: the **Financial System** and the **Reception System**, into a unified database model. The integration was achieved using PostgreSQL’s `postgres_fdw` extension. Additionally, two views were created — one for each subsystem — along with meaningful queries to demonstrate data accessibility and insight generation.
+This stage focuses on integrating two separate database systems: the Financial System and the Reception System, into a unified database model. The integration was achieved using PostgreSQL’s postgres_fdw extension. Additionally, two views were created — one for each subsystem — along with meaningful queries to demonstrate data accessibility and insight generation.
 
----
+🦇 Integration Strategy
 
-### 🦇 Integration Strategy
+🚪 Databases Involved:
 
-#### 🚪 Databases Involved:
+db5785_4051_8145 – Financial Database (our original project)
 
-* **db5785\_4051\_8145** – Financial Database (our original project)
-* **DB25785\_4051\_8145** – Reception Database (received from another team)
+DB25785_4051_8145 – Reception Database (received from another team)
 
-#### 🛠️ Tools Used:
+🛠️ Tools Used:
 
-* PostgreSQL
-* ERDPlus (for ERD & DSD modeling)
-* `postgres_fdw` (Foreign Data Wrapper)
-* Git for version control (`stage-c` tag)
+PostgreSQL
 
----
+ERDPlus (for ERD & DSD modeling)
 
-### 🗱 Step-by-Step Integration Workflow
+postgres_fdw (Foreign Data Wrapper)
 
-1. **DSD Creation from Reception DB**
-   We made the Reception system and made the table structures to build its **DSD**.
+Git for version control (stage-c tag)
 
-2. **ERD Reverse Engineering**
-   From the DSD, we created a logical **ERD** for the reception system, identifying key entities like `reservations`, `guests`, `rooms`, and `checkinout`.
+🗺️ DSDs and ERDs
 
-3. **Designing the Unified ERD**
-   We merged our **Financial ERD** with the **Reception ERD**, making key design decisions to:
+🧾 DSDs
 
-   * Avoid data duplication
-   * Use *foreign tables* instead of direct duplication
-   * Introduce **linking tables** (e.g., `reservationfinancelink`)
-   * Add **sync-tracking** functionality (`reservationsync`)
+financial_dsd.png: /images/integration/financial_dsd.png
 
-   📸 See:
+reception_dsd.png: /images/integration/reception_dsd.png
 
-   * `/images/integration/reception_erd.png`
-   * `/images/integration/combined_erd.png`
+integrated_dsd.png: /images/integration/integrated_dsd.png
 
-4. **Implementing Integration**
-   Using the `Integrate.sql` script:
+🧮 ERDs
 
-   * Enabled `postgres_fdw`
-   * Created a `FOREIGN SERVER` to the reception database
-   * Imported foreign tables: `guests`, `rooms`, `reservations`, `checkinout`
-   * Renamed them with a `foreign_` prefix
-   * Created `reservationfinancelink` and `reservationsync` tables
-   * Populated the linking tables with test data
-   * Indexed fields for performance
-   * Verified the integration with `SELECT` diagnostics
+financial_erd.png: /images/integration/financial_erd.png
 
----
+reception_erd.png: /images/integration/reception_erd.png
 
-### 📂 Key Integration Tables
+combined_erd.png: /images/integration/combined_erd.png
 
-#### `reservationfinancelink`
+🗱 Step-by-Step Integration Workflow
+
+DSD Creation from Reception DBWe received a backup of the Reception system and reverse-engineered the table structures to build its DSD.
+
+ERD Reverse EngineeringFrom the DSD, we created a logical ERD for the reception system, identifying key entities like reservations, guests, rooms, and checkinout.
+
+Designing the Unified ERDWe merged our Financial ERD with the Reception ERD, making key design decisions to:
+
+Avoid data duplication
+
+Use foreign tables instead of direct duplication
+
+Introduce linking tables (e.g., reservationfinancelink)
+
+Add sync-tracking functionality (reservationsync)
+
+📸 See:
+
+/images/integration/combined_erd.png
+
+Implementing IntegrationUsing the Integrate.sql script:
+
+Enabled postgres_fdw
+
+Created a FOREIGN SERVER to the reception database
+
+Imported foreign tables: guests, rooms, reservations, checkinout
+
+Renamed them with a foreign_ prefix
+
+Created reservationfinancelink and reservationsync tables
+
+Populated the linking tables with test data
+
+Indexed fields for performance
+
+Verified the integration with SELECT diagnostics
+
+📂 Key Integration Tables
+
+reservationfinancelink
 
 Links a reservation (reception) to a financial transaction (finance).
 
-```sql
 CREATE TABLE reservationfinancelink (
     link_id INTEGER PRIMARY KEY,
     reservation_id NUMERIC NOT NULL,
@@ -714,92 +734,123 @@ CREATE TABLE reservationfinancelink (
     created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (transaction_id) REFERENCES Transaction(TransactionID)
 );
-```
 
-#### `reservationsync`
+reservationsync
 
 Captures a snapshot of reservation and payment summary for syncing and reporting.
 
----
-
-### 👁️ Views & Analytical Queries
+👁️ Views & Analytical Queries
 
 We created two views — each from the perspective of a different department.
 
-#### 📘 View 1: `financial_reservation_view`
+📘 View 1: financial_reservation_view
 
 Shows detailed reservation and payment status — for use by the finance team. Combines room pricing, invoice discounts, and payment status.
 
-##### 🔍 Queries on Financial View:
+🔍 Queries on Financial View:
 
-* **Query 1.1 – Outstanding Payments**
-  Shows guests with unpaid or pending reservations.
-* **Query 1.2 – Revenue by Room Type**
-  Aggregates expected vs actual revenue, with discount analysis.
+Query 1.1 – Outstanding PaymentsShows guests with unpaid or pending reservations.
 
-📸 Screenshot: `/images/views/financial_view_sample.png`
+Query 1.2 – Revenue by Room TypeAggregates expected vs actual revenue, with discount analysis.
 
----
+📸 Screenshot: /images/views/financial_view_sample.png
 
-#### 📗 View 2: `reception_occupancy_financial_view`
+📗 View 2: reception_occupancy_financial_view
 
 Aggregates room utilization and revenue status. Helps reception manage occupancy and payment collection status.
 
-##### 🔍 Queries on Reception View:
+🔍 Queries on Reception View:
 
-* **Query 2.1 – Room Performance Summary**
-  Combines total bookings, current occupancy, and revenue.
-* **Query 2.2 – Payment Status Alerts**
-  Identifies rooms with payment issues (e.g., pending payments).
+Query 2.1 – Room Performance SummaryCombines total bookings, current occupancy, and revenue.
 
-📸 Screenshot: `/images/views/reception_view_sample.png`
+Query 2.2 – Payment Status AlertsIdentifies rooms with payment issues (e.g., pending payments).
 
----
+📸 Screenshot: /images/views/reception_view_sample.png
 
-### 📌 Design Decisions
+📌 Design Decisions
 
-* **Foreign Tables vs Physical Merge**: We opted to *import foreign tables* instead of duplicating the structure. This maintains source-of-truth separation.
-* **Naming Conventions**: Added `foreign_` prefix to imported tables for clarity.
-* **Linking Tables**: Used minimal tables (`reservationfinancelink`) to connect subsystems.
-* **Sync Snapshots**: `reservationsync` stores calculated results for fast reporting.
+Foreign Tables vs Physical Merge: We opted to import foreign tables instead of duplicating the structure. This maintains source-of-truth separation.
 
----
+Naming Conventions: Added foreign_ prefix to imported tables for clarity.
 
-### 📋 Files Added in This Stage
+Linking Tables: Used minimal tables (reservationfinancelink) to connect subsystems.
 
-| File Name             | Description                                         |
-| --------------------- | --------------------------------------------------- |
-| `Integrate.sql`       | Script to create foreign tables and perform linking |
-| `Views.sql`           | View creation and related queries                   |
-| `images/...`          | Visuals for DSD, ERD, and result screenshots        |
-| `backup3`             | Updated backup after integration                    |
-| `project-report-c.md` | Detailed PDF/Markdown report for Stage C            |
+Sync Snapshots: reservationsync stores calculated results for fast reporting.
 
----
+📋 Files Added in This Stage
 
-### 🧪 Sample Output
+File Name
 
-**Output from financial reservation view:**
+Description
 
-```sql
+Integrate.sql
+
+Script to create foreign tables and perform linking
+
+Views.sql
+
+View creation and related queries
+
+images/...
+
+Visuals for DSD, ERD, and result screenshots
+
+backup3
+
+Updated backup after integration
+
+project-report-c.md
+
+Detailed PDF/Markdown report for Stage C
+
+🧪 Sample Output
+
+Output from financial reservation view:
+
 SELECT * FROM financial_reservation_view LIMIT 10;
-```
 
-| guest\_name | room\_number | expected\_amount | paid\_amount | payment\_summary |
-| ----------- | ------------ | ---------------- | ------------ | ---------------- |
-| Alice Smith | 203          | 1200             | 1200         | Paid             |
-| Bob Johnson | 105          | 1500             | 0            | Not Paid         |
+guest_name
 
----
+room_number
 
-## ✅ Summary
+expected_amount
+
+paid_amount
+
+payment_summary
+
+Alice Smith
+
+203
+
+1200
+
+1200
+
+Paid
+
+Bob Johnson
+
+105
+
+1500
+
+0
+
+Not Paid
+
+✅ Summary
 
 This stage demonstrated how to:
 
-* Perform schema-level reverse engineering
-* Use PostgreSQL’s `FDW` to connect systems
-* Design smart linking tables
-* Build complex views that reflect meaningful departmental needs
-* Document and version control all changes with GIT
+Perform schema-level reverse engineering
 
-> 📁 All new files are under the `stage-c` folder and submitted with `stage-c` git tag.
+Use PostgreSQL’s FDW to connect systems
+
+Design smart linking tables
+
+Build complex views that reflect meaningful departmental needs
+
+Document and version control all changes with GIT
+
+📁 All new files are under the stage-c folder and submitted with stage-c git tag.
