@@ -614,7 +614,7 @@ ROLLBACK;
 ```
 
 📸 Screenshot T – Reverted update
-![Before&After – Rollback test](images/erd/roollback.png)
+![Before&After – Rollback test](images/erd/rollback.png)
 
 ---
 
