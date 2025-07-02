@@ -961,3 +961,1117 @@ GRANT SELECT ON ReceptionFinancialOverview TO PUBLIC;
 ---
 
 ---
+
+# Stage D - Advanced SQL Functions and Procedures
+
+This stage introduces eight advanced database components implemented in PL/pgSQL, including functions, triggers, procedures, and main scripts. These components manage financial calculations, enforce business rules, audit changes, and synchronize reservation data across systems. Together, they form the core of advanced logic and automation in the simulation’s financial infrastructure.
+
+---
+
+## 🔧 Functions
+
+### 1. `calculate_transaction_summary`
+**File:** `Function1_calculate_transaction_summary.sql`  
+**Purpose:** Returns a summary of all approved transactions between two dates, grouped by expense category.
+
+**Input Parameters:**
+- `start_date (DATE)` – Start of the date range (inclusive)  
+- `end_date (DATE)` – End of the date range (inclusive)
+
+**Output Columns:**
+- `category` – Expense category or `'No Category'`  
+- `total_amount` – Sum of all transaction amounts per category  
+- `transaction_count` – Number of approved transactions  
+- `avg_amount` – Average amount, rounded to 2 decimals  
+- `tax_total` – Total tax for the category
+
+```sql
+-- Function1_calculate_transaction_summary.sql (FIXED VERSION)
+CREATE OR REPLACE FUNCTION calculate_transaction_summary(
+    start_date DATE,
+    end_date DATE
+)
+RETURNS TABLE (
+    category VARCHAR,
+    total_amount NUMERIC,
+    transaction_count INTEGER,
+    avg_amount NUMERIC,
+    tax_total NUMERIC
+) AS $$
+DECLARE
+    -- Explicit cursor for transactions
+    transaction_cursor CURSOR FOR 
+        SELECT t.transactionid, t.amount, e.category
+        FROM transaction t
+        LEFT JOIN expense e ON t.expenseid = e.expenseid
+        WHERE t.date BETWEEN start_date AND end_date
+        AND t.status = 'Approved';
+    
+    -- Record type for cursor data
+    trans_record RECORD;
+    
+    -- Variables for calculations
+    v_tax_amount NUMERIC;
+    v_category VARCHAR;
+    
+BEGIN
+    -- Create temporary table for results
+    CREATE TEMP TABLE IF NOT EXISTS temp_summary (
+        cat_name VARCHAR PRIMARY KEY,  -- Changed from 'category' to avoid ambiguity
+        total_amount NUMERIC DEFAULT 0,
+        transaction_count INTEGER DEFAULT 0,
+        tax_total NUMERIC DEFAULT 0
+    ) ON COMMIT DROP;
+    
+    -- Clear any existing data
+    DELETE FROM temp_summary;
+    
+    -- Loop through transactions using cursor
+    OPEN transaction_cursor;
+    LOOP
+        FETCH transaction_cursor INTO trans_record;
+        EXIT WHEN NOT FOUND;
+        
+        -- Get category with proper handling
+        v_category := COALESCE(trans_record.category, 'No Category');
+        
+        -- Calculate tax for this transaction (implicit cursor)
+        SELECT COALESCE(SUM(tx.taxamount), 0) INTO v_tax_amount
+        FROM "transactionHasTax" tht
+        JOIN tax tx ON tht.taxid = tx.taxid
+        WHERE tht.transactionid = trans_record.transactionid;
+        
+        -- Insert or update category summary
+        INSERT INTO temp_summary (cat_name, total_amount, transaction_count, tax_total)
+        VALUES (v_category, trans_record.amount, 1, v_tax_amount)
+        ON CONFLICT (cat_name) DO UPDATE
+        SET total_amount = temp_summary.total_amount + EXCLUDED.total_amount,
+            transaction_count = temp_summary.transaction_count + 1,
+            tax_total = temp_summary.tax_total + EXCLUDED.tax_total;
+    END LOOP;
+    CLOSE transaction_cursor;
+    
+    -- Return results with calculations
+    RETURN QUERY
+    SELECT ts.cat_name::VARCHAR as category,
+           ts.total_amount,
+           ts.transaction_count,
+           ROUND(ts.total_amount / NULLIF(ts.transaction_count, 0), 2) as avg_amount,
+           ts.tax_total
+    FROM temp_summary ts
+    ORDER BY ts.total_amount DESC;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in calculate_transaction_summary: %', SQLERRM;
+        RETURN;
+END;
+$$ LANGUAGE plpgsql;
+```
+![](ex4/photo/func1.png)
+
+---
+
+### 2. `get_supplier_transactions_refcursor`
+**File:** `Function2_get_supplier_transactions_refcursor.sql`  
+**Purpose:** Returns a **refcursor** containing all transactions for a specific supplier, including metadata and calculated discount amounts.
+
+**Input Parameters:**
+- `p_supplier_id (NUMERIC)` – Supplier ID
+
+**Returned Cursor Includes:**
+- `suppliername`, `contactdetails`  
+- `expense_description`, `category`  
+- `transactionid`, `transaction_date`, `amount`, `status`  
+- `invoiceid`, `discount`, `final_amount`
+
+```sql
+-- Function2_get_supplier_transactions_refcursor.sql
+CREATE OR REPLACE FUNCTION get_supplier_transactions_refcursor(
+    p_supplier_id NUMERIC
+)
+RETURNS refcursor AS $$
+DECLARE
+    -- Ref cursor to return
+    ref_cursor refcursor;
+    
+    -- Variables for validation
+    v_supplier_exists BOOLEAN;
+    v_transaction_count INTEGER;
+    
+BEGIN
+    -- Check if supplier exists
+    SELECT EXISTS(SELECT 1 FROM supplier WHERE supplierid = p_supplier_id) 
+    INTO v_supplier_exists;
+    
+    IF NOT v_supplier_exists THEN
+        RAISE EXCEPTION 'Supplier ID % does not exist', p_supplier_id;
+    END IF;
+    
+    -- Count transactions for logging
+    SELECT COUNT(*) INTO v_transaction_count
+    FROM transaction t
+    JOIN expense e ON t.expenseid = e.expenseid
+    WHERE e.supplierid = p_supplier_id;
+    
+    RAISE NOTICE 'Found % transactions for supplier %', v_transaction_count, p_supplier_id;
+    
+    -- Open ref cursor with supplier transaction details
+    OPEN ref_cursor FOR
+        SELECT 
+            s.suppliername,
+            s.contactdetails,
+            e.description as expense_description,
+            e.category,
+            t.transactionid,
+            t.date as transaction_date,
+            t.amount,
+            t.status,
+            i.invoiceid,
+            i.discount,
+            CASE 
+                WHEN i.discount IS NOT NULL THEN 
+                    ROUND(t.amount - (t.amount * i.discount / 100), 2)
+                ELSE t.amount
+            END as final_amount
+        FROM supplier s
+        JOIN expense e ON s.supplierid = e.supplierid
+        JOIN transaction t ON e.expenseid = t.expenseid
+        LEFT JOIN invoice i ON t.transactionid = i.transactionid
+        WHERE s.supplierid = p_supplier_id
+        ORDER BY t.date DESC;
+    
+    RETURN ref_cursor;
+    
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE NOTICE 'No data found for supplier %', p_supplier_id;
+        RETURN NULL;
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in get_supplier_transactions_refcursor: %', SQLERRM;
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Test Function 2
+DO $$
+DECLARE
+    v_cursor refcursor;
+    v_record RECORD;
+BEGIN
+    v_cursor := get_supplier_transactions_refcursor(1);
+    RAISE NOTICE 'Supplier | Category | Description | Trans ID | Amount | Discount | Final';
+    RAISE NOTICE '---------|----------|-------------|----------|---------|----------|------';
+    
+    LOOP
+        FETCH v_cursor INTO v_record;
+        EXIT WHEN NOT FOUND;
+        RAISE NOTICE '% | % | % | % | % | % | %',
+            v_record.suppliername, v_record.category, v_record.expense_description,
+            v_record.transactionid, v_record.amount, v_record.discount, v_record.final_amount;
+    END LOOP;
+    CLOSE v_cursor;
+END $$;
+```
+![](ex4/photo/func1.png)
+
+---
+
+## ⚡ Triggers
+
+### 3. `transaction_audit_trigger`
+**File:** `Trigger1_transaction_audit_trigger.sql`  
+**Purpose:** Captures and logs **audit information** for any `INSERT`, `UPDATE`, or `DELETE` on the `transaction` table.
+
+**Logged Details Include:**
+- Amount changes  
+- Status changes  
+- Transaction date changes  
+- All entries logged to `transaction_audit`
+
+**Trigger Timing:**  
+`AFTER INSERT OR UPDATE OR DELETE`
+
+```sql
+-- Trigger1_transaction_audit_trigger.sql
+-- First create the trigger function
+CREATE OR REPLACE FUNCTION transaction_audit_function()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_change_reason TEXT;
+    v_significant_change BOOLEAN := FALSE;
+BEGIN
+    -- Determine the reason for change
+    IF TG_OP = 'UPDATE' THEN
+        -- Check for significant changes
+        IF OLD.amount != NEW.amount THEN
+            v_significant_change := TRUE;
+            v_change_reason := 'Amount changed from ' || OLD.amount || ' to ' || NEW.amount;
+        END IF;
+        
+        IF OLD.status != NEW.status THEN
+            v_significant_change := TRUE;
+            v_change_reason := COALESCE(v_change_reason || '; ', '') || 
+                              'Status changed from ' || OLD.status || ' to ' || NEW.status;
+        END IF;
+        
+        IF OLD.date != NEW.date THEN
+            v_change_reason := COALESCE(v_change_reason || '; ', '') || 
+                              'Date changed from ' || OLD.date || ' to ' || NEW.date;
+        END IF;
+        
+        -- Only log significant changes
+        IF v_significant_change THEN
+            INSERT INTO transaction_audit (
+                transaction_id, operation_type, 
+                old_amount, new_amount,
+                old_status, new_status,
+                old_date, new_date,
+                change_reason
+            )
+            VALUES (
+                NEW.transactionid, TG_OP,
+                OLD.amount, NEW.amount,
+                OLD.status, NEW.status,
+                OLD.date, NEW.date,
+                v_change_reason
+            );
+            
+            RAISE NOTICE 'Transaction % updated: %', NEW.transactionid, v_change_reason;
+        END IF;
+        
+    ELSIF TG_OP = 'INSERT' THEN
+        INSERT INTO transaction_audit (
+            transaction_id, operation_type,
+            new_amount, new_status, new_date,
+            change_reason
+        )
+        VALUES (
+            NEW.transactionid, TG_OP,
+            NEW.amount, NEW.status, NEW.date,
+            'New transaction created'
+        );
+        
+        RAISE NOTICE 'New transaction % created with amount %', NEW.transactionid, NEW.amount;
+        
+    ELSIF TG_OP = 'DELETE' THEN
+        INSERT INTO transaction_audit (
+            transaction_id, operation_type,
+            old_amount, old_status, old_date,
+            change_reason
+        )
+        VALUES (
+            OLD.transactionid, TG_OP,
+            OLD.amount, OLD.status, OLD.date,
+            'Transaction deleted'
+        );
+        
+        RAISE NOTICE 'Transaction % deleted', OLD.transactionid;
+    END IF;
+    
+    -- Return appropriate value
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Audit trigger error: %', SQLERRM;
+        -- Still return the row to not block the operation
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        ELSE
+            RETURN NEW;
+        END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+DROP TRIGGER IF EXISTS transaction_audit_trigger ON transaction;
+CREATE TRIGGER transaction_audit_trigger
+AFTER INSERT OR UPDATE OR DELETE ON transaction
+FOR EACH ROW
+EXECUTE FUNCTION transaction_audit_function();
+```
+
+![](ex4/photo/T1_partA.png)
+![](ex4/photo/T1_partB.png)
+---
+
+### 4. `invoice_discount_validation_trigger`
+**File:** `Trigger2_invoice_discount_validation_trigger.sql`  
+**Purpose:** Validates and enriches invoice data before insertion or update.
+
+**Validation Rules:**
+- Discount must be **non-negative**  
+- Discount **must not exceed 30%**, except for `'Utilities'` or `'Maintenance'` (up to 40%)  
+- Invoice type must be **'A', 'B', or 'C'**  
+- Auto-generates `invoiceid` if not provided  
+- Logs discounts ≥ 20% with `RAISE NOTICE`
+
+**Trigger Timing:**  
+`BEFORE INSERT OR UPDATE ON invoice`
+
+```sql
+-- Trigger2_invoice_discount_validation_trigger.sql
+-- Create trigger function for invoice discount validation
+CREATE OR REPLACE FUNCTION invoice_discount_validation_function()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_transaction_amount NUMERIC;
+    v_max_discount NUMERIC := 30.0; -- Maximum allowed discount percentage
+    v_supplier_name VARCHAR;
+    v_expense_category VARCHAR;
+    v_discount_allowed BOOLEAN := TRUE;
+BEGIN
+    -- For INSERT or UPDATE operations
+    IF TG_OP IN ('INSERT', 'UPDATE') THEN
+        
+        -- Validate discount percentage
+        IF NEW.discount < 0 THEN
+            RAISE EXCEPTION 'Discount cannot be negative. Provided: %', NEW.discount;
+        END IF;
+        
+        IF NEW.discount > v_max_discount THEN
+            -- Get transaction details for logging
+            SELECT t.amount, e.category, s.suppliername
+            INTO v_transaction_amount, v_expense_category, v_supplier_name
+            FROM transaction t
+            LEFT JOIN expense e ON t.expenseid = e.expenseid
+            LEFT JOIN supplier s ON e.supplierid = s.supplierid
+            WHERE t.transactionid = NEW.transactionid;
+            
+            -- Check if this is a special category that allows higher discounts
+            IF v_expense_category IN ('Utilities', 'Maintenance') THEN
+                v_max_discount := 40.0;
+                IF NEW.discount <= v_max_discount THEN
+                    v_discount_allowed := TRUE;
+                    RAISE NOTICE 'High discount % allowed for category %', NEW.discount, v_expense_category;
+                ELSE
+                    v_discount_allowed := FALSE;
+                END IF;
+            ELSE
+                v_discount_allowed := FALSE;
+            END IF;
+            
+            IF NOT v_discount_allowed THEN
+                RAISE EXCEPTION 'Discount % exceeds maximum allowed (%). Transaction: %, Supplier: %', 
+                    NEW.discount, v_max_discount, NEW.transactionid, COALESCE(v_supplier_name, 'N/A');
+            END IF;
+        END IF;
+        
+        -- Validate invoice type
+        IF NEW.type NOT IN ('A', 'B', 'C') THEN
+            RAISE EXCEPTION 'Invalid invoice type: %. Must be A, B, or C', NEW.type;
+        END IF;
+        
+        -- Log high discounts
+        IF NEW.discount >= 20 THEN
+            RAISE NOTICE 'High discount alert: Invoice % has % discount on transaction %', 
+                NEW.invoiceid, NEW.discount, NEW.transactionid;
+        END IF;
+        
+        -- Auto-generate invoice ID if not provided
+        IF NEW.invoiceid IS NULL THEN
+            SELECT COALESCE(MAX(invoiceid), 0) + 1 INTO NEW.invoiceid FROM invoice;
+        END IF;
+        
+    END IF;
+    
+    RETURN NEW;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Invoice validation failed: %', SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+DROP TRIGGER IF EXISTS invoice_discount_validation_trigger ON invoice;
+CREATE TRIGGER invoice_discount_validation_trigger
+BEFORE INSERT OR UPDATE ON invoice
+FOR EACH ROW
+EXECUTE FUNCTION invoice_discount_validation_function();
+```
+
+![](ex4/photo/tri2.png)
+
+---
+
+## 📋 Procedures
+
+### 5. `process_monthly_taxes`
+**File:** `Procedure1_process_monthly_taxes.sql`  
+**Purpose:** Processes **Approved** transactions for a given month and calculates **10% tax** for each.
+
+**Input Parameters:**
+- `p_month (INTEGER)` – Month to process  
+- `p_year (INTEGER)` – Year to process
+
+**Output Parameters:**
+- `p_processed_count (INTEGER)` – Number of processed transactions  
+- `p_total_tax_amount (NUMERIC)` – Total tax calculated
+
+**Key Features:**
+- Sets tax due date to 15 days after month-end  
+- Uses cursor to iterate over transactions  
+- Logs every 10 processed records  
+- Includes exception handling for duplicates and errors
+
+```sql
+-- Procedure1_process_monthly_taxes.sql
+CREATE OR REPLACE PROCEDURE process_monthly_taxes(
+    IN p_month INTEGER,
+    IN p_year INTEGER,
+    OUT p_processed_count INTEGER,
+    OUT p_total_tax_amount NUMERIC
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Variables for processing
+    v_start_date DATE;
+    v_end_date DATE;
+    v_transaction_record RECORD;
+    v_tax_id NUMERIC;
+    v_tax_amount NUMERIC;
+    v_error_count INTEGER := 0;
+    
+    -- Cursor for transactions in the month
+    monthly_transactions CURSOR FOR
+        SELECT transactionid, amount, date
+        FROM transaction
+        WHERE EXTRACT(MONTH FROM date) = p_month
+        AND EXTRACT(YEAR FROM date) = p_year
+        AND status = 'Approved';
+    
+BEGIN
+    -- Initialize output parameters
+    p_processed_count := 0;
+    p_total_tax_amount := 0;
+    
+    -- Set date range
+    v_start_date := DATE(p_year || '-' || LPAD(p_month::TEXT, 2, '0') || '-01');
+    v_end_date := (v_start_date + INTERVAL '1 month' - INTERVAL '1 day')::DATE;
+    
+    RAISE NOTICE 'Processing taxes for period: % to %', v_start_date, v_end_date;
+    
+    -- Process each transaction
+    FOR v_transaction_record IN monthly_transactions LOOP
+        BEGIN
+            -- Calculate tax (10% of transaction amount)
+            v_tax_amount := ROUND(v_transaction_record.amount * 0.10, 2);
+            
+            -- Generate new tax ID
+            SELECT COALESCE(MAX(taxid), 0) + 1 INTO v_tax_id FROM tax;
+            
+            -- Insert new tax record
+            INSERT INTO tax (taxid, percentage, taxamount, duedate)
+            VALUES (
+                v_tax_id,
+                10.00,
+                v_tax_amount,
+                v_end_date + INTERVAL '15 days'
+            );
+            
+            -- Link tax to transaction
+            INSERT INTO "transactionHasTax" (taxid, transactionid)
+            VALUES (v_tax_id, v_transaction_record.transactionid);
+            
+            -- Update counters
+            p_processed_count := p_processed_count + 1;
+            p_total_tax_amount := p_total_tax_amount + v_tax_amount;
+            
+            -- Log every 10 transactions
+            IF p_processed_count % 10 = 0 THEN
+                RAISE NOTICE 'Processed % transactions...', p_processed_count;
+            END IF;
+            
+        EXCEPTION
+            WHEN unique_violation THEN
+                RAISE NOTICE 'Tax already exists for transaction %', v_transaction_record.transactionid;
+                v_error_count := v_error_count + 1;
+            WHEN OTHERS THEN
+                RAISE WARNING 'Error processing transaction %: %', 
+                    v_transaction_record.transactionid, SQLERRM;
+                v_error_count := v_error_count + 1;
+        END;
+    END LOOP;
+    
+    -- Final summary
+    RAISE NOTICE 'Tax processing completed. Processed: %, Errors: %, Total Tax: %', 
+        p_processed_count, v_error_count, p_total_tax_amount;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Fatal error in process_monthly_taxes: %', SQLERRM;
+END;
+$$;
+
+-- Test Procedure 1
+DO $$
+DECLARE
+    v_processed INTEGER;
+    v_total_tax NUMERIC;
+BEGIN
+    CALL process_monthly_taxes(
+        EXTRACT(MONTH FROM CURRENT_DATE)::INTEGER,
+        EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER,
+        v_processed, 
+        v_total_tax
+    );
+    RAISE NOTICE 'Results: Processed % transactions, Total Tax: $%', v_processed, v_total_tax;
+END $$;
+```
+
+![](ex4/photo/p1.png)
+
+---
+
+### 6. `reconcile_reservations`
+**File:** `Procedure2_reconcile_reservations.sql`  
+**Purpose:** Synchronizes data from the `reservationsync` table into the `transaction` table and links records.
+
+**Input Parameters:**
+- `p_sync_days (INTEGER)` – Days back to look for unlinked reservations (default: 7)
+
+**Output Parameters:**
+- `p_created_transactions (INTEGER)` – Number of new transactions created  
+- `p_updated_links (INTEGER)` – Number of updated links in `reservationfinancelink`
+
+**Key Features:**
+- Manually checks existence (no `ON CONFLICT`)  
+- Logs every action to `reservation_sync_log`  
+- Resilient to individual failures via exception handling
+
+```sql
+-- Fixed Procedure2_reconcile_reservations.sql (without ON CONFLICT)
+CREATE OR REPLACE PROCEDURE reconcile_reservations(
+    OUT p_created_transactions INTEGER,
+    OUT p_updated_links INTEGER,
+    IN p_sync_days INTEGER DEFAULT 7
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Record type for reservation data
+    v_reservation RECORD;
+    v_transaction_id NUMERIC;
+    v_existing_amount NUMERIC;
+    v_new_transaction_id NUMERIC;
+    v_link_exists BOOLEAN;
+    
+    -- Cursor for unlinked reservations
+    unlinked_reservations CURSOR FOR
+        SELECT rs.*
+        FROM reservationsync rs
+        LEFT JOIN reservationfinancelink rfl ON rs.reservation_id = rfl.reservation_id
+        WHERE rfl.link_id IS NULL
+        AND rs.sync_date >= CURRENT_DATE - INTERVAL '1 day' * p_sync_days
+        ORDER BY rs.sync_date DESC;
+    
+BEGIN
+    -- Initialize counters
+    p_created_transactions := 0;
+    p_updated_links := 0;
+    
+    RAISE NOTICE 'Starting reservation reconciliation for last % days', p_sync_days;
+    
+    -- Process each unlinked reservation
+    FOR v_reservation IN unlinked_reservations LOOP
+        BEGIN
+            -- Check if transaction already exists for this reservation
+            SELECT transactionid, amount INTO v_transaction_id, v_existing_amount
+            FROM transaction
+            WHERE reservation_id = v_reservation.reservation_id
+            LIMIT 1;
+            
+            IF v_transaction_id IS NULL THEN
+                -- Generate new transaction ID properly
+                SELECT COALESCE(MAX(transactionid), 0) + 1 + p_created_transactions 
+                INTO v_new_transaction_id 
+                FROM transaction;
+                
+                -- Create new transaction
+                INSERT INTO transaction (
+                    transactionid, 
+                    date, 
+                    amount, 
+                    status, 
+                    reservation_id
+                )
+                VALUES (
+                    v_new_transaction_id,
+                    COALESCE(v_reservation.check_in_date, CURRENT_DATE),
+                    v_reservation.total_amount,
+                    'Pending',
+                    v_reservation.reservation_id
+                );
+                
+                v_transaction_id := v_new_transaction_id;
+                p_created_transactions := p_created_transactions + 1;
+                
+                -- Log the sync
+                INSERT INTO reservation_sync_log (
+                    reservation_id,
+                    operation_type,
+                    new_total_amount,
+                    auto_actions
+                )
+                VALUES (
+                    v_reservation.reservation_id,
+                    'CREATE_TRANSACTION',
+                    v_reservation.total_amount,
+                    'Created new transaction ID: ' || v_transaction_id
+                );
+            ELSE
+                -- Update existing transaction if amount changed
+                IF v_existing_amount != v_reservation.total_amount THEN
+                    UPDATE transaction
+                    SET amount = v_reservation.total_amount,
+                        date = CURRENT_DATE
+                    WHERE transactionid = v_transaction_id;
+                    
+                    -- Log the update
+                    INSERT INTO reservation_sync_log (
+                        reservation_id,
+                        operation_type,
+                        old_total_amount,
+                        new_total_amount,
+                        auto_actions
+                    )
+                    VALUES (
+                        v_reservation.reservation_id,
+                        'UPDATE_TRANSACTION',
+                        v_existing_amount,
+                        v_reservation.total_amount,
+                        'Updated transaction ID: ' || v_transaction_id
+                    );
+                END IF;
+            END IF;
+            
+            -- Check if link already exists
+            SELECT EXISTS(
+                SELECT 1 FROM reservationfinancelink 
+                WHERE reservation_id = v_reservation.reservation_id
+            ) INTO v_link_exists;
+            
+            IF NOT v_link_exists THEN
+                -- Create link
+                INSERT INTO reservationfinancelink (reservation_id, transaction_id)
+                VALUES (v_reservation.reservation_id, v_transaction_id);
+                
+                p_updated_links := p_updated_links + 1;
+            ELSE
+                -- Update existing link
+                UPDATE reservationfinancelink 
+                SET transaction_id = v_transaction_id,
+                    created_date = CURRENT_TIMESTAMP
+                WHERE reservation_id = v_reservation.reservation_id;
+                
+                p_updated_links := p_updated_links + 1;
+            END IF;
+            
+        EXCEPTION
+            WHEN OTHERS THEN
+                -- Log error
+                INSERT INTO reservation_sync_log (
+                    reservation_id,
+                    operation_type,
+                    sync_status,
+                    error_message
+                )
+                VALUES (
+                    v_reservation.reservation_id,
+                    'ERROR',
+                    'FAILED',
+                    SQLERRM
+                );
+                
+                RAISE WARNING 'Error processing reservation %: %', 
+                    v_reservation.reservation_id, SQLERRM;
+        END;
+    END LOOP;
+    
+    RAISE NOTICE 'Reconciliation complete. Created % transactions, Updated % links', 
+        p_created_transactions, p_updated_links;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Fatal error in reconcile_reservations: %', SQLERRM;
+END;
+$$;
+
+-- Test Procedure 2
+DO $$
+DECLARE
+    v_created INTEGER;
+    v_updated INTEGER;
+BEGIN
+    -- Insert a test reservation
+    INSERT INTO reservationsync (reservation_id, guest_name, room_number, check_in_date, check_out_date, total_amount)
+    VALUES (99999, 'Test Guest', 999, CURRENT_DATE, CURRENT_DATE + 2, 999.99);
+    
+    CALL reconcile_reservations(v_created, v_updated, 7);
+    RAISE NOTICE 'Results: Created % transactions, Updated % links', v_created, v_updated;
+END $$;
+```
+
+![](ex4/photo/pro2.png)
+
+---
+
+## 🧾 Main Programs
+
+### 7. Financial Analysis Report
+**File:** `Main1_financial_analysis_report.sql`  
+**Purpose:** Generates a **detailed financial report** using summary and tax data.
+
+**Key Steps:**
+- Analyzes last 30 days  
+- Ensures supporting test data exists  
+- Invokes `calculate_transaction_summary` and `process_monthly_taxes`  
+- Aggregates totals: transaction count, amounts, tax  
+- Prints summary report with category breakdowns
+
+**Output Includes:**
+- Summary per category  
+- Total amounts and counts  
+- Tax statistics
+
+```sql
+-- Main1_financial_analysis_report.sql (FIXED)
+-- Main Program 1: Financial Analysis Report
+-- This program calls Function 1 (calculate_transaction_summary) and Procedure 1 (process_monthly_taxes)
+
+DO $$
+DECLARE
+    -- Variables for function results
+    v_summary_record RECORD;
+    v_total_transactions NUMERIC := 0;
+    v_total_amount NUMERIC := 0;
+    
+    -- Variables for procedure output
+    v_processed_count INTEGER;
+    v_total_tax_amount NUMERIC;
+    
+    -- Other variables
+    v_current_month INTEGER;
+    v_current_year INTEGER;
+    v_report_date DATE;
+    v_start_date DATE;  -- Added this
+    v_end_date DATE;    -- Added this
+    
+BEGIN
+    -- Set report parameters
+    v_current_month := EXTRACT(MONTH FROM CURRENT_DATE);
+    v_current_year := EXTRACT(YEAR FROM CURRENT_DATE);
+    v_report_date := CURRENT_DATE;
+    v_start_date := CURRENT_DATE - 30;  -- Fixed: Use DATE arithmetic
+    v_end_date := CURRENT_DATE;         -- Fixed: Explicit DATE
+    
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'FINANCIAL ANALYSIS REPORT';
+    RAISE NOTICE 'Report Date: %', v_report_date;
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '';
+    
+    -- First, let's insert some test data if needed
+    RAISE NOTICE 'Checking for test data...';
+    
+    -- Insert test suppliers if not exists
+    INSERT INTO supplier (supplierid, suppliername, contactdetails, address)
+    VALUES 
+        (1, 'ABC Supplies', 'contact@abc.com', '123 Main St'),
+        (2, 'XYZ Services', 'info@xyz.com', '456 Oak Ave')
+    ON CONFLICT (supplierid) DO NOTHING;
+    
+    -- Insert test expenses if not exists
+    INSERT INTO expense (expenseid, description, category, supplierid)
+    VALUES 
+        (1, 'Office Supplies', 'Supplies', 1),
+        (2, 'Cleaning Service', 'Maintenance', 2),
+        (3, 'Electric Bill', 'Utilities', 1)
+    ON CONFLICT (expenseid) DO NOTHING;
+    
+    -- Insert test transactions for current month
+    INSERT INTO transaction (transactionid, date, amount, status, expenseid)
+    VALUES 
+        (101, CURRENT_DATE - 5, 500.00, 'Approved', 1),  -- Fixed: Use integer days
+        (102, CURRENT_DATE - 3, 750.00, 'Approved', 2),
+        (103, CURRENT_DATE - 1, 1200.00, 'Approved', 3),
+        (104, CURRENT_DATE, 300.00, 'Pending', 1)
+    ON CONFLICT (transactionid) DO NOTHING;
+    
+    -- Insert test payment methods
+    INSERT INTO paymentmethod (paymentmethodid, methodname, methoddetails)
+    VALUES 
+        (1, 'Credit Card', 'Visa ending in 1234'),
+        (2, 'Bank Transfer', 'Account: 5678')
+    ON CONFLICT (paymentmethodid) DO NOTHING;
+    
+    -- Link payment methods to transactions
+    INSERT INTO "paymentMethodUsedInTransaction" (transactionid, paymentmethodid)
+    VALUES (101, 1), (102, 2), (103, 1)
+    ON CONFLICT DO NOTHING;
+    
+    RAISE NOTICE 'Test data verified.';
+    RAISE NOTICE '';
+    
+    -- PART 1: Call Function 1 - Calculate Transaction Summary
+    RAISE NOTICE '--- PART 1: TRANSACTION SUMMARY ANALYSIS ---';
+    RAISE NOTICE 'Period: Last 30 days';
+    RAISE NOTICE '';
+    
+    RAISE NOTICE 'Category         | Total Amount | Count | Avg Amount | Tax Total';
+    RAISE NOTICE '-----------------|--------------|-------|------------|----------';
+    
+    FOR v_summary_record IN 
+        SELECT * FROM calculate_transaction_summary(
+            v_start_date,  -- Fixed: Use DATE variable
+            v_end_date     -- Fixed: Use DATE variable
+        )
+    LOOP
+        RAISE NOTICE '%-16s | $%11s | %5s | $%9s | $%8s',
+            RPAD(v_summary_record.category, 16),
+            LPAD(v_summary_record.total_amount::TEXT, 11),
+            LPAD(v_summary_record.transaction_count::TEXT, 5),
+            LPAD(v_summary_record.avg_amount::TEXT, 9),
+            LPAD(v_summary_record.tax_total::TEXT, 8);
+            
+        v_total_transactions := v_total_transactions + v_summary_record.transaction_count;
+        v_total_amount := v_total_amount + v_summary_record.total_amount;
+    END LOOP;
+    
+    RAISE NOTICE '-----------------|--------------|-------|------------|----------';
+    RAISE NOTICE 'TOTAL            | $%11s | %5s |            |',
+        LPAD(v_total_amount::TEXT, 11),
+        LPAD(v_total_transactions::TEXT, 5);
+    RAISE NOTICE '';
+    
+    -- PART 2: Call Procedure 1 - Process Monthly Taxes
+    RAISE NOTICE '--- PART 2: MONTHLY TAX PROCESSING ---';
+    RAISE NOTICE 'Processing taxes for: %/%', v_current_month, v_current_year;
+    RAISE NOTICE '';
+    
+    BEGIN
+        CALL process_monthly_taxes(
+            v_current_month,
+            v_current_year,
+            v_processed_count,
+            v_total_tax_amount
+        );
+        
+        RAISE NOTICE '';
+        RAISE NOTICE 'Tax Processing Results:';
+        RAISE NOTICE '  - Transactions Processed: %', v_processed_count;
+        RAISE NOTICE '  - Total Tax Generated: $%', v_total_tax_amount;
+        RAISE NOTICE '  - Average Tax per Transaction: $%', 
+            CASE WHEN v_processed_count > 0 
+                THEN ROUND(v_total_tax_amount / v_processed_count, 2)
+                ELSE 0 
+            END;
+            
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE NOTICE 'Error in tax processing: %', SQLERRM;
+    END;
+    
+    RAISE NOTICE '';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'END OF FINANCIAL ANALYSIS REPORT';
+    RAISE NOTICE '========================================';
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in main program: %', SQLERRM;
+        RAISE;
+END;
+$$;
+```
+
+---
+
+### 8. Supplier and Reservation Management
+**File:** `Main2_supplier_reservation_management_CLEAN.sql`  
+**Purpose:** Manages supplier transactions and reconciles reservation data with financial records.
+
+**Key Steps:**
+- Uses `get_supplier_transactions_refcursor` to display all related transactions  
+- Calls `reconcile_reservations` to sync new reservations  
+- Prints sync summary and logs
+
+**Output Includes:**
+- Breakdown of transactions per supplier  
+- Created and updated reservation-finance links  
+- Log of all sync actions and errors
+
+```sql
+-- Main2_supplier_reservation_management_CLEAN.sql
+DO $$
+DECLARE
+    -- Variables for function results
+    v_supplier_cursor refcursor;
+    v_supplier_record RECORD;
+    v_supplier_total NUMERIC := 0;
+    v_record_count INTEGER := 0;
+    
+    -- Variables for procedure output
+    v_created_transactions INTEGER;
+    v_updated_links INTEGER;
+    
+    -- Test data variables
+    v_test_supplier_id NUMERIC := 1;
+    
+BEGIN
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'SUPPLIER AND RESERVATION MANAGEMENT REPORT';
+    RAISE NOTICE 'Report Date: %', CURRENT_TIMESTAMP;
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '';
+    
+    -- Don't insert new reservation data, use what's already there
+    RAISE NOTICE 'Using existing test reservation data...';
+    
+    -- Just ensure we have the test invoices
+    INSERT INTO invoice (invoiceid, discount, type, transactionid)
+    VALUES 
+        (901, 10.00, 'A', 101),
+        (902, 15.00, 'A', 102),
+        (903, 5.00, 'A', 103)
+    ON CONFLICT (invoiceid) DO NOTHING;
+    
+    RAISE NOTICE 'Test data verified.';
+    RAISE NOTICE '';
+    
+    -- PART 1: Call Function 2 - Get Supplier Transactions with RefCursor
+    RAISE NOTICE '--- PART 1: SUPPLIER TRANSACTION DETAILS ---';
+    RAISE NOTICE 'Retrieving transactions for Supplier ID: %', v_test_supplier_id;
+    RAISE NOTICE '';
+    
+    BEGIN
+        -- Get the ref cursor from the function
+        v_supplier_cursor := get_supplier_transactions_refcursor(v_test_supplier_id);
+        
+        IF v_supplier_cursor IS NOT NULL THEN
+            RAISE NOTICE 'Supplier Name | Category    | Description         | Trans ID | Date       | Amount   | Discount | Final Amt';
+            RAISE NOTICE '--------------|-------------|---------------------|----------|------------|----------|----------|----------';
+            
+            LOOP
+                FETCH v_supplier_cursor INTO v_supplier_record;
+                EXIT WHEN NOT FOUND;
+                
+                RAISE NOTICE '%-13s | %-11s | %-19s | %-8s | %-10s | $%-7s | %-8s | $%-8s',
+                    SUBSTRING(v_supplier_record.suppliername, 1, 13),
+                    SUBSTRING(v_supplier_record.category, 1, 11),
+                    SUBSTRING(v_supplier_record.expense_description, 1, 19),
+                    v_supplier_record.transactionid,
+                    v_supplier_record.transaction_date,
+                    LPAD(v_supplier_record.amount::TEXT, 7),
+                    COALESCE(v_supplier_record.discount::TEXT || '%', 'N/A'),
+                    LPAD(v_supplier_record.final_amount::TEXT, 8);
+                
+                v_supplier_total := v_supplier_total + v_supplier_record.final_amount;
+                v_record_count := v_record_count + 1;
+            END LOOP;
+            
+            CLOSE v_supplier_cursor;
+            
+            RAISE NOTICE '--------------|-------------|---------------------|----------|------------|----------|----------|----------';
+            RAISE NOTICE 'Total Records: % | Total Amount (after discounts): $%', v_record_count, v_supplier_total;
+            
+        ELSE
+            RAISE NOTICE 'No transactions found for supplier.';
+        END IF;
+        
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE NOTICE 'Error retrieving supplier transactions: %', SQLERRM;
+            IF v_supplier_cursor IS NOT NULL THEN
+                CLOSE v_supplier_cursor;
+            END IF;
+    END;
+    
+    RAISE NOTICE '';
+    
+    -- PART 2: Call Procedure 2 - Reconcile Reservations
+    RAISE NOTICE '--- PART 2: RESERVATION RECONCILIATION ---';
+    RAISE NOTICE 'Processing unlinked reservations from the last 7 days...';
+    RAISE NOTICE '';
+    
+    BEGIN
+        -- Show current reservation status before reconciliation
+        RAISE NOTICE 'Current unlinked reservations:';
+        FOR v_supplier_record IN 
+            SELECT rs.reservation_id, rs.guest_name, rs.total_amount
+            FROM reservationsync rs
+            LEFT JOIN reservationfinancelink rfl ON rs.reservation_id = rfl.reservation_id
+            WHERE rfl.link_id IS NULL
+            AND rs.reservation_id >= 9000  -- Only our test reservations
+        LOOP
+            RAISE NOTICE '  - Reservation %: % ($%)', 
+                v_supplier_record.reservation_id, 
+                v_supplier_record.guest_name,
+                v_supplier_record.total_amount;
+        END LOOP;
+        
+        RAISE NOTICE '';
+        
+        -- Call the reconciliation procedure
+        CALL reconcile_reservations(
+            v_created_transactions,
+            v_updated_links,
+            7
+        );
+        
+        RAISE NOTICE '';
+        RAISE NOTICE 'Reconciliation Results:';
+        RAISE NOTICE '  - New Transactions Created: %', v_created_transactions;
+        RAISE NOTICE '  - Reservation Links Updated: %', v_updated_links;
+        RAISE NOTICE '';
+        
+        -- Show the sync log entries
+        RAISE NOTICE 'Recent Sync Log Entries:';
+        RAISE NOTICE 'Reservation | Operation          | Status  | Amount   | Action';
+        RAISE NOTICE '------------|-------------------|---------|----------|------------------';
+        
+        FOR v_supplier_record IN 
+            SELECT reservation_id, operation_type, sync_status, 
+                   COALESCE(new_total_amount, old_total_amount) as amount,
+                   SUBSTRING(COALESCE(auto_actions, error_message, 'N/A'), 1, 30) as action
+            FROM reservation_sync_log
+            WHERE process_timestamp >= CURRENT_TIMESTAMP - INTERVAL '1 minute'
+            AND reservation_id >= 9000  -- Only our test reservations
+            ORDER BY log_id DESC
+            LIMIT 5
+        LOOP
+            RAISE NOTICE '%-11s | %-17s | %-7s | $%-7s | %-s',
+                v_supplier_record.reservation_id,
+                v_supplier_record.operation_type,
+                v_supplier_record.sync_status,
+                LPAD(COALESCE(v_supplier_record.amount, 0)::TEXT, 7),
+                v_supplier_record.action;
+        END LOOP;
+        
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE NOTICE 'Error in reservation reconciliation: %', SQLERRM;
+    END;
+    
+    -- Continue with trigger demonstrations...
+    -- (rest of the code remains the same)
+    
+    RAISE NOTICE '';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'END OF SUPPLIER AND RESERVATION REPORT';
+    RAISE NOTICE '========================================';
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Fatal error in main program: %', SQLERRM;
+        RAISE;
+END;
+$$;
+```
