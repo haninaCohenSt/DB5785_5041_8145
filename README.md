@@ -779,9 +779,9 @@ LEFT JOIN invoice i ON t.transactionid = i.transactionid;
 ```sql
 SELECT * FROM financial_reservation_view LIMIT 10;
 ```
-![Financial View Sample](ex3/צילום מסך 2025-07-01 191123.png)
-![](ex3/צילום מסך 2025-07-01 191150.png)
+![](ex3/צילום מסך 2025-07-01 191123.png)
 
+![](ex3/צילום מסך 2025-07-01 191150.png)
 
 ### View 2: Reception Department Perspective
 **View Name:** `reception_occupancy_financial_view`
