@@ -645,7 +645,7 @@ ALTER COLUMN status SET DEFAULT 'Approved';
 
 # 📘 Stage C – Integration and Views
 
-This stage focuses on integrating our financial management system with another hotel department's database system. We received a backup of the Reception department's database and performed a complete integration process, creating views and complex queries that span both systems.
+This stage focuses on integrating our financial management system with another hotel department's database system. We created a backup of the Reception department's database and performed a complete integration process, creating views and complex queries that span both systems.
 
 ---
 
@@ -823,8 +823,7 @@ GROUP BY ro.room_number, ro.room_type, ro.floor, ro.status, ro.price_per_night;
 ```sql
 SELECT * FROM reception_occupancy_financial_view LIMIT 10;
 ```
-![Reception View Sample](images/integration/reception_view_sample.png)
-*Place screenshot showing first 10 records from reception_occupancy_financial_view*
+
 
 ---
 
@@ -852,9 +851,6 @@ LIMIT 10;
 
 **Purpose:** Identify reservations with unpaid or pending payments to prioritize collection efforts and follow up with guests who have outstanding balances.
 
-**Results:**
-![Financial Query 1](images/integration/financial_query1.png)
-*Place screenshot of outstanding payments report*
 
 #### Query 1.2: Revenue Analysis by Room Type
 ```sql
@@ -872,10 +868,6 @@ ORDER BY actual_revenue DESC;
 ```
 
 **Purpose:** Analyze revenue performance by room type, including the impact of discounts and identify revenue gaps that need attention.
-
-**Results:**
-![Financial Query 2](images/integration/financial_query2.png)
-*Place screenshot of revenue analysis by room type*
 
 ### Queries on Reception View
 
@@ -895,10 +887,6 @@ ORDER BY total_revenue_generated DESC;
 ```
 
 **Purpose:** Evaluate room utilization and revenue generation by room type to inform pricing strategies and identify high-performing room categories.
-
-**Results:**
-![Reception Query 1](images/integration/reception_query1.png)
-*Place screenshot of room performance summary*
 
 #### Query 2.2: Payment Status Alert by Room
 ```sql
@@ -924,10 +912,6 @@ LIMIT 15;
 
 **Purpose:** Identify rooms with pending payments for follow-up and alert reception staff to potential payment issues that require immediate attention.
 
-**Results:**
-![Reception Query 2](images/integration/reception_query2.png)
-*Place screenshot of payment status alerts*
-
 ---
 
 ## 📊 Integration Verification
@@ -951,10 +935,6 @@ SELECT 'Reservation-Finance Links' as table_name, COUNT(*) as record_count FROM 
 UNION ALL
 SELECT 'Reservation Sync', COUNT(*) FROM reservationsync;
 ```
-
-**Verification Results:**
-![Integration Verification](images/integration/verification_results.png)
-*Place screenshot showing verification query results*
 
 ---
 
@@ -980,58 +960,4 @@ GRANT SELECT ON ReceptionFinancialOverview TO PUBLIC;
 
 ---
 
-## 📁 File Structure
-
-```
-Stage C/
-├── images/
-│   └── integration/
-│       ├── reception_dsd.png
-│       ├── reception_erd.png
-│       ├── integrated_erd.png
-│       ├── final_dsd.png
-│       ├── integration_commands.png
-│       ├── financial_view_sample.png
-│       ├── reception_view_sample.png
-│       ├── financial_query1.png
-│       ├── financial_query2.png
-│       ├── reception_query1.png
-│       ├── reception_query2.png
-│       └── verification_results.png
-├── Integrate.sql
-├── Views.sql
-├── backup3.sql
-└── Project_Report_Stage_C.md
-```
-
 ---
-
-## 🎯 Key Achievements
-
-1. **Successful Integration**: Connected two separate hotel department databases using PostgreSQL Foreign Data Wrapper
-2. **Data Integrity**: Maintained referential integrity while allowing independent operation of both systems
-3. **Comprehensive Views**: Created meaningful views that serve both departments' needs
-4. **Performance Optimization**: Implemented indexes on linking tables for efficient cross-database queries
-5. **Security Implementation**: Proper permission management for integrated access
-
----
-
-## 🔄 Future Enhancements
-
-1. **Real-time Synchronization**: Implement triggers for automatic data synchronization
-2. **Audit Trail**: Add logging for all cross-database operations
-3. **Performance Monitoring**: Implement query performance tracking for foreign data access
-4. **Backup Strategy**: Develop comprehensive backup strategy for integrated system
-5. **Error Handling**: Add robust error handling for network connectivity issues
-
----
-
-## 📈 Business Impact
-
-The integration provides significant business value:
-
-- **Improved Customer Service**: Reception staff can instantly access payment information
-- **Financial Transparency**: Finance department has complete visibility into reservation-related transactions
-- **Operational Efficiency**: Reduced manual data entry and reconciliation efforts
-- **Better Reporting**: Comprehensive reports spanning both operational and financial data
-- **Data Consistency**: Single source of truth for guest financial information
