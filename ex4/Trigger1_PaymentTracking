@@ -1,0 +1,115 @@
+-- Trigger1_transaction_audit_trigger.sql
+-- First create the trigger function
+CREATE OR REPLACE FUNCTION transaction_audit_function()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_change_reason TEXT;
+    v_significant_change BOOLEAN := FALSE;
+BEGIN
+    -- Determine the reason for change
+    IF TG_OP = 'UPDATE' THEN
+        -- Check for significant changes
+        IF OLD.amount != NEW.amount THEN
+            v_significant_change := TRUE;
+            v_change_reason := 'Amount changed from ' || OLD.amount || ' to ' || NEW.amount;
+        END IF;
+        
+        IF OLD.status != NEW.status THEN
+            v_significant_change := TRUE;
+            v_change_reason := COALESCE(v_change_reason || '; ', '') || 
+                              'Status changed from ' || OLD.status || ' to ' || NEW.status;
+        END IF;
+        
+        IF OLD.date != NEW.date THEN
+            v_change_reason := COALESCE(v_change_reason || '; ', '') || 
+                              'Date changed from ' || OLD.date || ' to ' || NEW.date;
+        END IF;
+        
+        -- Only log significant changes
+        IF v_significant_change THEN
+            INSERT INTO transaction_audit (
+                transaction_id, operation_type, 
+                old_amount, new_amount,
+                old_status, new_status,
+                old_date, new_date,
+                change_reason
+            )
+            VALUES (
+                NEW.transactionid, TG_OP,
+                OLD.amount, NEW.amount,
+                OLD.status, NEW.status,
+                OLD.date, NEW.date,
+                v_change_reason
+            );
+            
+            RAISE NOTICE 'Transaction % updated: %', NEW.transactionid, v_change_reason;
+        END IF;
+        
+    ELSIF TG_OP = 'INSERT' THEN
+        INSERT INTO transaction_audit (
+            transaction_id, operation_type,
+            new_amount, new_status, new_date,
+            change_reason
+        )
+        VALUES (
+            NEW.transactionid, TG_OP,
+            NEW.amount, NEW.status, NEW.date,
+            'New transaction created'
+        );
+        
+        RAISE NOTICE 'New transaction % created with amount %', NEW.transactionid, NEW.amount;
+        
+    ELSIF TG_OP = 'DELETE' THEN
+        INSERT INTO transaction_audit (
+            transaction_id, operation_type,
+            old_amount, old_status, old_date,
+            change_reason
+        )
+        VALUES (
+            OLD.transactionid, TG_OP,
+            OLD.amount, OLD.status, OLD.date,
+            'Transaction deleted'
+        );
+        
+        RAISE NOTICE 'Transaction % deleted', OLD.transactionid;
+    END IF;
+    
+    -- Return appropriate value
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Audit trigger error: %', SQLERRM;
+        -- Still return the row to not block the operation
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        ELSE
+            RETURN NEW;
+        END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+DROP TRIGGER IF EXISTS transaction_audit_trigger ON transaction;
+CREATE TRIGGER transaction_audit_trigger
+AFTER INSERT OR UPDATE OR DELETE ON transaction
+FOR EACH ROW
+EXECUTE FUNCTION transaction_audit_function();
+
+
+-- Test Trigger 1 - Transaction Audit
+-- First, show before state
+SELECT * FROM transaction WHERE transactionid = 101;
+
+-- Update transaction (this fires the trigger)
+UPDATE transaction SET amount = 600.00, status = 'Pending' WHERE transactionid = 101;
+
+-- Show the audit record created
+SELECT * FROM transaction_audit 
+WHERE transaction_id = 101 
+ORDER BY audit_id DESC 
+LIMIT 1;

@@ -1,0 +1,86 @@
+-- Function2_get_supplier_transactions_refcursor.sql
+CREATE OR REPLACE FUNCTION get_supplier_transactions_refcursor(
+    p_supplier_id NUMERIC
+)
+RETURNS refcursor AS $$
+DECLARE
+    -- Ref cursor to return
+    ref_cursor refcursor;
+    
+    -- Variables for validation
+    v_supplier_exists BOOLEAN;
+    v_transaction_count INTEGER;
+    
+BEGIN
+    -- Check if supplier exists
+    SELECT EXISTS(SELECT 1 FROM supplier WHERE supplierid = p_supplier_id) 
+    INTO v_supplier_exists;
+    
+    IF NOT v_supplier_exists THEN
+        RAISE EXCEPTION 'Supplier ID % does not exist', p_supplier_id;
+    END IF;
+    
+    -- Count transactions for logging
+    SELECT COUNT(*) INTO v_transaction_count
+    FROM transaction t
+    JOIN expense e ON t.expenseid = e.expenseid
+    WHERE e.supplierid = p_supplier_id;
+    
+    RAISE NOTICE 'Found % transactions for supplier %', v_transaction_count, p_supplier_id;
+    
+    -- Open ref cursor with supplier transaction details
+    OPEN ref_cursor FOR
+        SELECT 
+            s.suppliername,
+            s.contactdetails,
+            e.description as expense_description,
+            e.category,
+            t.transactionid,
+            t.date as transaction_date,
+            t.amount,
+            t.status,
+            i.invoiceid,
+            i.discount,
+            CASE 
+                WHEN i.discount IS NOT NULL THEN 
+                    ROUND(t.amount - (t.amount * i.discount / 100), 2)
+                ELSE t.amount
+            END as final_amount
+        FROM supplier s
+        JOIN expense e ON s.supplierid = e.supplierid
+        JOIN transaction t ON e.expenseid = t.expenseid
+        LEFT JOIN invoice i ON t.transactionid = i.transactionid
+        WHERE s.supplierid = p_supplier_id
+        ORDER BY t.date DESC;
+    
+    RETURN ref_cursor;
+    
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RAISE NOTICE 'No data found for supplier %', p_supplier_id;
+        RETURN NULL;
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in get_supplier_transactions_refcursor: %', SQLERRM;
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Test Function 2
+DO $$
+DECLARE
+    v_cursor refcursor;
+    v_record RECORD;
+BEGIN
+    v_cursor := get_supplier_transactions_refcursor(1);
+    RAISE NOTICE 'Supplier | Category | Description | Trans ID | Amount | Discount | Final';
+    RAISE NOTICE '---------|----------|-------------|----------|---------|----------|------';
+    
+    LOOP
+        FETCH v_cursor INTO v_record;
+        EXIT WHEN NOT FOUND;
+        RAISE NOTICE '% | % | % | % | % | % | %',
+            v_record.suppliername, v_record.category, v_record.expense_description,
+            v_record.transactionid, v_record.amount, v_record.discount, v_record.final_amount;
+    END LOOP;
+    CLOSE v_cursor;
+END $$;

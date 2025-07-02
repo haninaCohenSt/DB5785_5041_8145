@@ -1,0 +1,81 @@
+-- Function1_calculate_transaction_summary.sql (FIXED VERSION)
+CREATE OR REPLACE FUNCTION calculate_transaction_summary(
+    start_date DATE,
+    end_date DATE
+)
+RETURNS TABLE (
+    category VARCHAR,
+    total_amount NUMERIC,
+    transaction_count INTEGER,
+    avg_amount NUMERIC,
+    tax_total NUMERIC
+) AS $$
+DECLARE
+    -- Explicit cursor for transactions
+    transaction_cursor CURSOR FOR 
+        SELECT t.transactionid, t.amount, e.category
+        FROM transaction t
+        LEFT JOIN expense e ON t.expenseid = e.expenseid
+        WHERE t.date BETWEEN start_date AND end_date
+        AND t.status = 'Approved';
+    
+    -- Record type for cursor data
+    trans_record RECORD;
+    
+    -- Variables for calculations
+    v_tax_amount NUMERIC;
+    v_category VARCHAR;
+    
+BEGIN
+    -- Create temporary table for results
+    CREATE TEMP TABLE IF NOT EXISTS temp_summary (
+        cat_name VARCHAR PRIMARY KEY,  -- Changed from 'category' to avoid ambiguity
+        total_amount NUMERIC DEFAULT 0,
+        transaction_count INTEGER DEFAULT 0,
+        tax_total NUMERIC DEFAULT 0
+    ) ON COMMIT DROP;
+    
+    -- Clear any existing data
+    DELETE FROM temp_summary;
+    
+    -- Loop through transactions using cursor
+    OPEN transaction_cursor;
+    LOOP
+        FETCH transaction_cursor INTO trans_record;
+        EXIT WHEN NOT FOUND;
+        
+        -- Get category with proper handling
+        v_category := COALESCE(trans_record.category, 'No Category');
+        
+        -- Calculate tax for this transaction (implicit cursor)
+        SELECT COALESCE(SUM(tx.taxamount), 0) INTO v_tax_amount
+        FROM "transactionHasTax" tht
+        JOIN tax tx ON tht.taxid = tx.taxid
+        WHERE tht.transactionid = trans_record.transactionid;
+        
+        -- Insert or update category summary
+        INSERT INTO temp_summary (cat_name, total_amount, transaction_count, tax_total)
+        VALUES (v_category, trans_record.amount, 1, v_tax_amount)
+        ON CONFLICT (cat_name) DO UPDATE
+        SET total_amount = temp_summary.total_amount + EXCLUDED.total_amount,
+            transaction_count = temp_summary.transaction_count + 1,
+            tax_total = temp_summary.tax_total + EXCLUDED.tax_total;
+    END LOOP;
+    CLOSE transaction_cursor;
+    
+    -- Return results with calculations
+    RETURN QUERY
+    SELECT ts.cat_name::VARCHAR as category,
+           ts.total_amount,
+           ts.transaction_count,
+           ROUND(ts.total_amount / NULLIF(ts.transaction_count, 0), 2) as avg_amount,
+           ts.tax_total
+    FROM temp_summary ts
+    ORDER BY ts.total_amount DESC;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in calculate_transaction_summary: %', SQLERRM;
+        RETURN;
+END;
+$$ LANGUAGE plpgsql;

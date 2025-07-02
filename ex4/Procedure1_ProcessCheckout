@@ -1,0 +1,103 @@
+-- Procedure1_process_monthly_taxes.sql
+CREATE OR REPLACE PROCEDURE process_monthly_taxes(
+    IN p_month INTEGER,
+    IN p_year INTEGER,
+    OUT p_processed_count INTEGER,
+    OUT p_total_tax_amount NUMERIC
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Variables for processing
+    v_start_date DATE;
+    v_end_date DATE;
+    v_transaction_record RECORD;
+    v_tax_id NUMERIC;
+    v_tax_amount NUMERIC;
+    v_error_count INTEGER := 0;
+    
+    -- Cursor for transactions in the month
+    monthly_transactions CURSOR FOR
+        SELECT transactionid, amount, date
+        FROM transaction
+        WHERE EXTRACT(MONTH FROM date) = p_month
+        AND EXTRACT(YEAR FROM date) = p_year
+        AND status = 'Approved';
+    
+BEGIN
+    -- Initialize output parameters
+    p_processed_count := 0;
+    p_total_tax_amount := 0;
+    
+    -- Set date range
+    v_start_date := DATE(p_year || '-' || LPAD(p_month::TEXT, 2, '0') || '-01');
+    v_end_date := (v_start_date + INTERVAL '1 month' - INTERVAL '1 day')::DATE;
+    
+    RAISE NOTICE 'Processing taxes for period: % to %', v_start_date, v_end_date;
+    
+    -- Process each transaction
+    FOR v_transaction_record IN monthly_transactions LOOP
+        BEGIN
+            -- Calculate tax (10% of transaction amount)
+            v_tax_amount := ROUND(v_transaction_record.amount * 0.10, 2);
+            
+            -- Generate new tax ID
+            SELECT COALESCE(MAX(taxid), 0) + 1 INTO v_tax_id FROM tax;
+            
+            -- Insert new tax record
+            INSERT INTO tax (taxid, percentage, taxamount, duedate)
+            VALUES (
+                v_tax_id,
+                10.00,
+                v_tax_amount,
+                v_end_date + INTERVAL '15 days'
+            );
+            
+            -- Link tax to transaction
+            INSERT INTO "transactionHasTax" (taxid, transactionid)
+            VALUES (v_tax_id, v_transaction_record.transactionid);
+            
+            -- Update counters
+            p_processed_count := p_processed_count + 1;
+            p_total_tax_amount := p_total_tax_amount + v_tax_amount;
+            
+            -- Log every 10 transactions
+            IF p_processed_count % 10 = 0 THEN
+                RAISE NOTICE 'Processed % transactions...', p_processed_count;
+            END IF;
+            
+        EXCEPTION
+            WHEN unique_violation THEN
+                RAISE NOTICE 'Tax already exists for transaction %', v_transaction_record.transactionid;
+                v_error_count := v_error_count + 1;
+            WHEN OTHERS THEN
+                RAISE WARNING 'Error processing transaction %: %', 
+                    v_transaction_record.transactionid, SQLERRM;
+                v_error_count := v_error_count + 1;
+        END;
+    END LOOP;
+    
+    -- Final summary
+    RAISE NOTICE 'Tax processing completed. Processed: %, Errors: %, Total Tax: %', 
+        p_processed_count, v_error_count, p_total_tax_amount;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Fatal error in process_monthly_taxes: %', SQLERRM;
+END;
+$$;
+
+-- Test Procedure 1
+DO $$
+DECLARE
+    v_processed INTEGER;
+    v_total_tax NUMERIC;
+BEGIN
+    CALL process_monthly_taxes(
+        EXTRACT(MONTH FROM CURRENT_DATE)::INTEGER,
+        EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER,
+        v_processed, 
+        v_total_tax
+    );
+    RAISE NOTICE 'Results: Processed % transactions, Total Tax: $%', v_processed, v_total_tax;
+END $$;

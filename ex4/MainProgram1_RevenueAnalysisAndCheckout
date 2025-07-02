@@ -1,0 +1,148 @@
+-- Main1_financial_analysis_report.sql (FIXED)
+-- Main Program 1: Financial Analysis Report
+-- This program calls Function 1 (calculate_transaction_summary) and Procedure 1 (process_monthly_taxes)
+
+DO $$
+DECLARE
+    -- Variables for function results
+    v_summary_record RECORD;
+    v_total_transactions NUMERIC := 0;
+    v_total_amount NUMERIC := 0;
+    
+    -- Variables for procedure output
+    v_processed_count INTEGER;
+    v_total_tax_amount NUMERIC;
+    
+    -- Other variables
+    v_current_month INTEGER;
+    v_current_year INTEGER;
+    v_report_date DATE;
+    v_start_date DATE;  -- Added this
+    v_end_date DATE;    -- Added this
+    
+BEGIN
+    -- Set report parameters
+    v_current_month := EXTRACT(MONTH FROM CURRENT_DATE);
+    v_current_year := EXTRACT(YEAR FROM CURRENT_DATE);
+    v_report_date := CURRENT_DATE;
+    v_start_date := CURRENT_DATE - 30;  -- Fixed: Use DATE arithmetic
+    v_end_date := CURRENT_DATE;         -- Fixed: Explicit DATE
+    
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'FINANCIAL ANALYSIS REPORT';
+    RAISE NOTICE 'Report Date: %', v_report_date;
+    RAISE NOTICE '========================================';
+    RAISE NOTICE '';
+    
+    -- First, let's insert some test data if needed
+    RAISE NOTICE 'Checking for test data...';
+    
+    -- Insert test suppliers if not exists
+    INSERT INTO supplier (supplierid, suppliername, contactdetails, address)
+    VALUES 
+        (1, 'ABC Supplies', 'contact@abc.com', '123 Main St'),
+        (2, 'XYZ Services', 'info@xyz.com', '456 Oak Ave')
+    ON CONFLICT (supplierid) DO NOTHING;
+    
+    -- Insert test expenses if not exists
+    INSERT INTO expense (expenseid, description, category, supplierid)
+    VALUES 
+        (1, 'Office Supplies', 'Supplies', 1),
+        (2, 'Cleaning Service', 'Maintenance', 2),
+        (3, 'Electric Bill', 'Utilities', 1)
+    ON CONFLICT (expenseid) DO NOTHING;
+    
+    -- Insert test transactions for current month
+    INSERT INTO transaction (transactionid, date, amount, status, expenseid)
+    VALUES 
+        (101, CURRENT_DATE - 5, 500.00, 'Approved', 1),  -- Fixed: Use integer days
+        (102, CURRENT_DATE - 3, 750.00, 'Approved', 2),
+        (103, CURRENT_DATE - 1, 1200.00, 'Approved', 3),
+        (104, CURRENT_DATE, 300.00, 'Pending', 1)
+    ON CONFLICT (transactionid) DO NOTHING;
+    
+    -- Insert test payment methods
+    INSERT INTO paymentmethod (paymentmethodid, methodname, methoddetails)
+    VALUES 
+        (1, 'Credit Card', 'Visa ending in 1234'),
+        (2, 'Bank Transfer', 'Account: 5678')
+    ON CONFLICT (paymentmethodid) DO NOTHING;
+    
+    -- Link payment methods to transactions
+    INSERT INTO "paymentMethodUsedInTransaction" (transactionid, paymentmethodid)
+    VALUES (101, 1), (102, 2), (103, 1)
+    ON CONFLICT DO NOTHING;
+    
+    RAISE NOTICE 'Test data verified.';
+    RAISE NOTICE '';
+    
+    -- PART 1: Call Function 1 - Calculate Transaction Summary
+    RAISE NOTICE '--- PART 1: TRANSACTION SUMMARY ANALYSIS ---';
+    RAISE NOTICE 'Period: Last 30 days';
+    RAISE NOTICE '';
+    
+    RAISE NOTICE 'Category         | Total Amount | Count | Avg Amount | Tax Total';
+    RAISE NOTICE '-----------------|--------------|-------|------------|----------';
+    
+    FOR v_summary_record IN 
+        SELECT * FROM calculate_transaction_summary(
+            v_start_date,  -- Fixed: Use DATE variable
+            v_end_date     -- Fixed: Use DATE variable
+        )
+    LOOP
+        RAISE NOTICE '%-16s | $%11s | %5s | $%9s | $%8s',
+            RPAD(v_summary_record.category, 16),
+            LPAD(v_summary_record.total_amount::TEXT, 11),
+            LPAD(v_summary_record.transaction_count::TEXT, 5),
+            LPAD(v_summary_record.avg_amount::TEXT, 9),
+            LPAD(v_summary_record.tax_total::TEXT, 8);
+            
+        v_total_transactions := v_total_transactions + v_summary_record.transaction_count;
+        v_total_amount := v_total_amount + v_summary_record.total_amount;
+    END LOOP;
+    
+    RAISE NOTICE '-----------------|--------------|-------|------------|----------';
+    RAISE NOTICE 'TOTAL            | $%11s | %5s |            |',
+        LPAD(v_total_amount::TEXT, 11),
+        LPAD(v_total_transactions::TEXT, 5);
+    RAISE NOTICE '';
+    
+    -- PART 2: Call Procedure 1 - Process Monthly Taxes
+    RAISE NOTICE '--- PART 2: MONTHLY TAX PROCESSING ---';
+    RAISE NOTICE 'Processing taxes for: %/%', v_current_month, v_current_year;
+    RAISE NOTICE '';
+    
+    BEGIN
+        CALL process_monthly_taxes(
+            v_current_month,
+            v_current_year,
+            v_processed_count,
+            v_total_tax_amount
+        );
+        
+        RAISE NOTICE '';
+        RAISE NOTICE 'Tax Processing Results:';
+        RAISE NOTICE '  - Transactions Processed: %', v_processed_count;
+        RAISE NOTICE '  - Total Tax Generated: $%', v_total_tax_amount;
+        RAISE NOTICE '  - Average Tax per Transaction: $%', 
+            CASE WHEN v_processed_count > 0 
+                THEN ROUND(v_total_tax_amount / v_processed_count, 2)
+                ELSE 0 
+            END;
+            
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE NOTICE 'Error in tax processing: %', SQLERRM;
+    END;
+    
+    RAISE NOTICE '';
+    RAISE NOTICE '========================================';
+    RAISE NOTICE 'END OF FINANCIAL ANALYSIS REPORT';
+    RAISE NOTICE '========================================';
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in main program: %', SQLERRM;
+        RAISE;
+END;
+$$;

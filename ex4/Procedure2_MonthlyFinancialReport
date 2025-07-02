@@ -1,0 +1,170 @@
+-- Fixed Procedure2_reconcile_reservations.sql (without ON CONFLICT)
+CREATE OR REPLACE PROCEDURE reconcile_reservations(
+    OUT p_created_transactions INTEGER,
+    OUT p_updated_links INTEGER,
+    IN p_sync_days INTEGER DEFAULT 7
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Record type for reservation data
+    v_reservation RECORD;
+    v_transaction_id NUMERIC;
+    v_existing_amount NUMERIC;
+    v_new_transaction_id NUMERIC;
+    v_link_exists BOOLEAN;
+    
+    -- Cursor for unlinked reservations
+    unlinked_reservations CURSOR FOR
+        SELECT rs.*
+        FROM reservationsync rs
+        LEFT JOIN reservationfinancelink rfl ON rs.reservation_id = rfl.reservation_id
+        WHERE rfl.link_id IS NULL
+        AND rs.sync_date >= CURRENT_DATE - INTERVAL '1 day' * p_sync_days
+        ORDER BY rs.sync_date DESC;
+    
+BEGIN
+    -- Initialize counters
+    p_created_transactions := 0;
+    p_updated_links := 0;
+    
+    RAISE NOTICE 'Starting reservation reconciliation for last % days', p_sync_days;
+    
+    -- Process each unlinked reservation
+    FOR v_reservation IN unlinked_reservations LOOP
+        BEGIN
+            -- Check if transaction already exists for this reservation
+            SELECT transactionid, amount INTO v_transaction_id, v_existing_amount
+            FROM transaction
+            WHERE reservation_id = v_reservation.reservation_id
+            LIMIT 1;
+            
+            IF v_transaction_id IS NULL THEN
+                -- Generate new transaction ID properly
+                SELECT COALESCE(MAX(transactionid), 0) + 1 + p_created_transactions 
+                INTO v_new_transaction_id 
+                FROM transaction;
+                
+                -- Create new transaction
+                INSERT INTO transaction (
+                    transactionid, 
+                    date, 
+                    amount, 
+                    status, 
+                    reservation_id
+                )
+                VALUES (
+                    v_new_transaction_id,
+                    COALESCE(v_reservation.check_in_date, CURRENT_DATE),
+                    v_reservation.total_amount,
+                    'Pending',
+                    v_reservation.reservation_id
+                );
+                
+                v_transaction_id := v_new_transaction_id;
+                p_created_transactions := p_created_transactions + 1;
+                
+                -- Log the sync
+                INSERT INTO reservation_sync_log (
+                    reservation_id,
+                    operation_type,
+                    new_total_amount,
+                    auto_actions
+                )
+                VALUES (
+                    v_reservation.reservation_id,
+                    'CREATE_TRANSACTION',
+                    v_reservation.total_amount,
+                    'Created new transaction ID: ' || v_transaction_id
+                );
+            ELSE
+                -- Update existing transaction if amount changed
+                IF v_existing_amount != v_reservation.total_amount THEN
+                    UPDATE transaction
+                    SET amount = v_reservation.total_amount,
+                        date = CURRENT_DATE
+                    WHERE transactionid = v_transaction_id;
+                    
+                    -- Log the update
+                    INSERT INTO reservation_sync_log (
+                        reservation_id,
+                        operation_type,
+                        old_total_amount,
+                        new_total_amount,
+                        auto_actions
+                    )
+                    VALUES (
+                        v_reservation.reservation_id,
+                        'UPDATE_TRANSACTION',
+                        v_existing_amount,
+                        v_reservation.total_amount,
+                        'Updated transaction ID: ' || v_transaction_id
+                    );
+                END IF;
+            END IF;
+            
+            -- Check if link already exists
+            SELECT EXISTS(
+                SELECT 1 FROM reservationfinancelink 
+                WHERE reservation_id = v_reservation.reservation_id
+            ) INTO v_link_exists;
+            
+            IF NOT v_link_exists THEN
+                -- Create link
+                INSERT INTO reservationfinancelink (reservation_id, transaction_id)
+                VALUES (v_reservation.reservation_id, v_transaction_id);
+                
+                p_updated_links := p_updated_links + 1;
+            ELSE
+                -- Update existing link
+                UPDATE reservationfinancelink 
+                SET transaction_id = v_transaction_id,
+                    created_date = CURRENT_TIMESTAMP
+                WHERE reservation_id = v_reservation.reservation_id;
+                
+                p_updated_links := p_updated_links + 1;
+            END IF;
+            
+        EXCEPTION
+            WHEN OTHERS THEN
+                -- Log error
+                INSERT INTO reservation_sync_log (
+                    reservation_id,
+                    operation_type,
+                    sync_status,
+                    error_message
+                )
+                VALUES (
+                    v_reservation.reservation_id,
+                    'ERROR',
+                    'FAILED',
+                    SQLERRM
+                );
+                
+                RAISE WARNING 'Error processing reservation %: %', 
+                    v_reservation.reservation_id, SQLERRM;
+        END;
+    END LOOP;
+    
+    RAISE NOTICE 'Reconciliation complete. Created % transactions, Updated % links', 
+        p_created_transactions, p_updated_links;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Fatal error in reconcile_reservations: %', SQLERRM;
+END;
+$$;
+
+-- Test Procedure 2
+DO $$
+DECLARE
+    v_created INTEGER;
+    v_updated INTEGER;
+BEGIN
+    -- Insert a test reservation
+    INSERT INTO reservationsync (reservation_id, guest_name, room_number, check_in_date, check_out_date, total_amount)
+    VALUES (99999, 'Test Guest', 999, CURRENT_DATE, CURRENT_DATE + 2, 999.99);
+    
+    CALL reconcile_reservations(v_created, v_updated, 7);
+    RAISE NOTICE 'Results: Created % transactions, Updated % links', v_created, v_updated;
+END $$;

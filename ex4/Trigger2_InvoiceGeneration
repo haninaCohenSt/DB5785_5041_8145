@@ -1,0 +1,79 @@
+-- Trigger2_invoice_discount_validation_trigger.sql
+-- Create trigger function for invoice discount validation
+CREATE OR REPLACE FUNCTION invoice_discount_validation_function()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_transaction_amount NUMERIC;
+    v_max_discount NUMERIC := 30.0; -- Maximum allowed discount percentage
+    v_supplier_name VARCHAR;
+    v_expense_category VARCHAR;
+    v_discount_allowed BOOLEAN := TRUE;
+BEGIN
+    -- For INSERT or UPDATE operations
+    IF TG_OP IN ('INSERT', 'UPDATE') THEN
+        
+        -- Validate discount percentage
+        IF NEW.discount < 0 THEN
+            RAISE EXCEPTION 'Discount cannot be negative. Provided: %', NEW.discount;
+        END IF;
+        
+        IF NEW.discount > v_max_discount THEN
+            -- Get transaction details for logging
+            SELECT t.amount, e.category, s.suppliername
+            INTO v_transaction_amount, v_expense_category, v_supplier_name
+            FROM transaction t
+            LEFT JOIN expense e ON t.expenseid = e.expenseid
+            LEFT JOIN supplier s ON e.supplierid = s.supplierid
+            WHERE t.transactionid = NEW.transactionid;
+            
+            -- Check if this is a special category that allows higher discounts
+            IF v_expense_category IN ('Utilities', 'Maintenance') THEN
+                v_max_discount := 40.0;
+                IF NEW.discount <= v_max_discount THEN
+                    v_discount_allowed := TRUE;
+                    RAISE NOTICE 'High discount % allowed for category %', NEW.discount, v_expense_category;
+                ELSE
+                    v_discount_allowed := FALSE;
+                END IF;
+            ELSE
+                v_discount_allowed := FALSE;
+            END IF;
+            
+            IF NOT v_discount_allowed THEN
+                RAISE EXCEPTION 'Discount % exceeds maximum allowed (%). Transaction: %, Supplier: %', 
+                    NEW.discount, v_max_discount, NEW.transactionid, COALESCE(v_supplier_name, 'N/A');
+            END IF;
+        END IF;
+        
+        -- Validate invoice type
+        IF NEW.type NOT IN ('A', 'B', 'C') THEN
+            RAISE EXCEPTION 'Invalid invoice type: %. Must be A, B, or C', NEW.type;
+        END IF;
+        
+        -- Log high discounts
+        IF NEW.discount >= 20 THEN
+            RAISE NOTICE 'High discount alert: Invoice % has % discount on transaction %', 
+                NEW.invoiceid, NEW.discount, NEW.transactionid;
+        END IF;
+        
+        -- Auto-generate invoice ID if not provided
+        IF NEW.invoiceid IS NULL THEN
+            SELECT COALESCE(MAX(invoiceid), 0) + 1 INTO NEW.invoiceid FROM invoice;
+        END IF;
+        
+    END IF;
+    
+    RETURN NEW;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Invoice validation failed: %', SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+DROP TRIGGER IF EXISTS invoice_discount_validation_trigger ON invoice;
+CREATE TRIGGER invoice_discount_validation_trigger
+BEFORE INSERT OR UPDATE ON invoice
+FOR EACH ROW
+EXECUTE FUNCTION invoice_discount_validation_function();
