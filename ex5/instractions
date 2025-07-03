@@ -1,0 +1,6 @@
+dawnload the file in the order they are in the repository.
+go the the plave app.py is:
+  using cd command or navigeting there
+running in the cmd at the place of the app.py
+  streamlit run app.py
+  and allow it to open.
